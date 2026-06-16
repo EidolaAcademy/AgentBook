@@ -138,10 +138,19 @@ review auth flow
 很多人第一次设计子 Agent 工具时，会只留一个 `task` 字段：
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 这能跑，但很快会出问题。因为同一段任务文本同时承担了三个角色：
@@ -159,19 +168,42 @@ def example(context: dict[str, Any]) -> dict[str, Any]:
 教学实现中也建议这样拆：
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 然后在调用子 Agent 时：
 
 ```python
-taskTitle = input.description
-childUserMessage =:
-    "role": 'user'
-    "content": input.prompt
+from dataclasses import dataclass
+from typing import Any, Literal
+
+Decision = Literal["allow", "deny", "ask"]
+
+@dataclass
+class PermissionDecision:
+    decision: Decision
+    reason: str = ""
+    rule: str | None = None
+
+def check_tool_permission(tool_name: str, tool_input: dict[str, Any]) -> PermissionDecision:
+    command = str(tool_input.get("command", ""))
+    if tool_name == "Bash" and command.startswith("rm -rf"):
+        return PermissionDecision("deny", "危险删除命令", "Bash(rm -rf*)")
+    if tool_name in {"Read", "Grep"}:
+        return PermissionDecision("allow")
+    return PermissionDecision("ask", f"需要用户确认: {tool_name}")
 ```
 
 这样你可以在 UI 上显示：
@@ -399,19 +431,43 @@ requiredMcpServers:
 教学版可以这样实现：
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class McpTool:
+    server_name: str
+    name: str
+    description: str
+    input_schema: dict[str, Any]
+
+def wrap_mcp_tool(tool: McpTool) -> dict[str, Any]:
+    return {
+        "name": f"mcp__{tool.server_name}__{tool.name}",
+        "description": tool.description,
+        "input_schema": tool.input_schema,
+    }
 ```
 
 调用时：
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class McpTool:
+    server_name: str
+    name: str
+    description: str
+    input_schema: dict[str, Any]
+
+def wrap_mcp_tool(tool: McpTool) -> dict[str, Any]:
+    return {
+        "name": f"mcp__{tool.server_name}__{tool.name}",
+        "description": tool.description,
+        "input_schema": tool.input_schema,
+    }
 ```
 
 注意这里有一个工程细节：等待 pending 状态是合理的，但不能无限等。Agent 系统里任何外部依赖都要有超时，否则一次委派就可能把整个任务卡死。
@@ -464,11 +520,30 @@ def read_text_file(workspace: Path, user_path: str) -> str:
 除了系统提示词，还要构造传给子 Agent 的消息列表。最简单的方式是只传一个用户消息：
 
 ```python
-promptMessages = [
+from dataclasses import dataclass, field
+from typing import Any
 
-    "role": 'user'
-    "content": input.prompt
-]
+@dataclass
+class ChildAgentRequest:
+    agent_id: str
+    task: str
+    allowed_tools: list[str] = field(default_factory=list)
+    max_turns: int = 8
+
+@dataclass
+class ChildAgentResult:
+    agent_id: str
+    summary: str
+    messages: list[dict[str, Any]] = field(default_factory=list)
+
+async def run_child_agent(request: ChildAgentRequest, model: Any, tools: dict[str, Any]) -> ChildAgentResult:
+    messages = [{"role": "user", "content": request.task}]
+    for _ in range(request.max_turns):
+        response = await model.complete(messages, tools)
+        messages.append(response)
+        if not response.get("tool_uses"):
+            return ChildAgentResult(request.agent_id, str(response.get("content", "")), messages)
+    return ChildAgentResult(request.agent_id, "子 Agent 达到最大轮数", messages)
 ```
 
 这对应 Claude Code 中普通路径的做法：把 `prompt` 包装成 user message，作为子 Agent 的初始任务。
@@ -482,12 +557,30 @@ promptMessages = [
 新手阶段建议先做普通路径。也就是：
 
 ```python
-def buildChildMessages(prompt: str):
-    return [
-    
-        "role": 'user'
-        "content": prompt
-    ]
+from dataclasses import dataclass, field
+from typing import Any
+
+@dataclass
+class ChildAgentRequest:
+    agent_id: str
+    task: str
+    allowed_tools: list[str] = field(default_factory=list)
+    max_turns: int = 8
+
+@dataclass
+class ChildAgentResult:
+    agent_id: str
+    summary: str
+    messages: list[dict[str, Any]] = field(default_factory=list)
+
+async def run_child_agent(request: ChildAgentRequest, model: Any, tools: dict[str, Any]) -> ChildAgentResult:
+    messages = [{"role": "user", "content": request.task}]
+    for _ in range(request.max_turns):
+        response = await model.complete(messages, tools)
+        messages.append(response)
+        if not response.get("tool_uses"):
+            return ChildAgentResult(request.agent_id, str(response.get("content", "")), messages)
+    return ChildAgentResult(request.agent_id, "子 Agent 达到最大轮数", messages)
 ```
 
 等普通委派跑通之后，再考虑是否需要上下文继承。
@@ -509,11 +602,24 @@ def buildChildMessages(prompt: str):
 简化理解：
 
 ```python
-workerPermissionContext =:
-    ...parentPermissionContext
-    "mode": selectedAgent.permissionMode  or  'acceptEdits'
+from dataclasses import dataclass
+from typing import Any, Literal
 
-workerTools = assembleToolPool(workerPermissionContext, mcpTools)
+Decision = Literal["allow", "deny", "ask"]
+
+@dataclass
+class PermissionDecision:
+    decision: Decision
+    reason: str = ""
+    rule: str | None = None
+
+def check_tool_permission(tool_name: str, tool_input: dict[str, Any]) -> PermissionDecision:
+    command = str(tool_input.get("command", ""))
+    if tool_name == "Bash" and command.startswith("rm -rf"):
+        return PermissionDecision("deny", "危险删除命令", "Bash(rm -rf*)")
+    if tool_name in {"Read", "Grep"}:
+        return PermissionDecision("allow")
+    return PermissionDecision("ask", f"需要用户确认: {tool_name}")
 ```
 
 为什么不直接继承父工具？
@@ -712,10 +818,30 @@ class TranscriptEntry:
 异步版本则需要任务注册表：
 
 ```python
+from dataclasses import dataclass, field
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ChildAgentRequest:
+    agent_id: str
+    task: str
+    allowed_tools: list[str] = field(default_factory=list)
+    max_turns: int = 8
+
+@dataclass
+class ChildAgentResult:
+    agent_id: str
+    summary: str
+    messages: list[dict[str, Any]] = field(default_factory=list)
+
+async def run_child_agent(request: ChildAgentRequest, model: Any, tools: dict[str, Any]) -> ChildAgentResult:
+    messages = [{"role": "user", "content": request.task}]
+    for _ in range(request.max_turns):
+        response = await model.complete(messages, tools)
+        messages.append(response)
+        if not response.get("tool_uses"):
+            return ChildAgentResult(request.agent_id, str(response.get("content", "")), messages)
+    return ChildAgentResult(request.agent_id, "子 Agent 达到最大轮数", messages)
 ```
 
 启动后台任务：
@@ -933,10 +1059,30 @@ class TranscriptEntry:
 同步子 Agent 的返回值通常包括：
 
 ```python
+from dataclasses import dataclass, field
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ChildAgentRequest:
+    agent_id: str
+    task: str
+    allowed_tools: list[str] = field(default_factory=list)
+    max_turns: int = 8
+
+@dataclass
+class ChildAgentResult:
+    agent_id: str
+    summary: str
+    messages: list[dict[str, Any]] = field(default_factory=list)
+
+async def run_child_agent(request: ChildAgentRequest, model: Any, tools: dict[str, Any]) -> ChildAgentResult:
+    messages = [{"role": "user", "content": request.task}]
+    for _ in range(request.max_turns):
+        response = await model.complete(messages, tools)
+        messages.append(response)
+        if not response.get("tool_uses"):
+            return ChildAgentResult(request.agent_id, str(response.get("content", "")), messages)
+    return ChildAgentResult(request.agent_id, "子 Agent 达到最大轮数", messages)
 ```
 
 异步子 Agent 的返回值通常包括：
@@ -1060,20 +1206,59 @@ def deny_message(rule: PermissionRule) -> dict[str, str]:
 选择 Agent 时：
 
 ```python
-def if(self, !selectedAgent):
-    throw AgentToolError(
-    "Agent type '{effectiveType}' not found"
-    'AGENT_NOT_FOUND'
-    )
+from dataclasses import dataclass, field
+from typing import Any
+
+@dataclass
+class ChildAgentRequest:
+    agent_id: str
+    task: str
+    allowed_tools: list[str] = field(default_factory=list)
+    max_turns: int = 8
+
+@dataclass
+class ChildAgentResult:
+    agent_id: str
+    summary: str
+    messages: list[dict[str, Any]] = field(default_factory=list)
+
+async def run_child_agent(request: ChildAgentRequest, model: Any, tools: dict[str, Any]) -> ChildAgentResult:
+    messages = [{"role": "user", "content": request.task}]
+    for _ in range(request.max_turns):
+        response = await model.complete(messages, tools)
+        messages.append(response)
+        if not response.get("tool_uses"):
+            return ChildAgentResult(request.agent_id, str(response.get("content", "")), messages)
+    return ChildAgentResult(request.agent_id, "子 Agent 达到最大轮数", messages)
 ```
 
 能力缺失时：
 
 ```python
-throw AgentToolError(
-"Agent '{agent.agentType}' requires missing capability '{capability}'"
-'CAPABILITY_MISSING'
-)
+from dataclasses import dataclass, field
+from typing import Any
+
+@dataclass
+class ChildAgentRequest:
+    agent_id: str
+    task: str
+    allowed_tools: list[str] = field(default_factory=list)
+    max_turns: int = 8
+
+@dataclass
+class ChildAgentResult:
+    agent_id: str
+    summary: str
+    messages: list[dict[str, Any]] = field(default_factory=list)
+
+async def run_child_agent(request: ChildAgentRequest, model: Any, tools: dict[str, Any]) -> ChildAgentResult:
+    messages = [{"role": "user", "content": request.task}]
+    for _ in range(request.max_turns):
+        response = await model.complete(messages, tools)
+        messages.append(response)
+        if not response.get("tool_uses"):
+            return ChildAgentResult(request.agent_id, str(response.get("content", "")), messages)
+    return ChildAgentResult(request.agent_id, "子 Agent 达到最大轮数", messages)
 ```
 
 父 Agent 收到错误后，可以把它作为工具调用失败处理。模型可以据此改用其他方案。例如：
@@ -1105,19 +1290,59 @@ GitHub MCP 不可用。我将改为只基于本地代码进行审查。
 所以 Agent 定义中应该支持 `maxTurns`：
 
 ```python
+from dataclasses import dataclass, field
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ChildAgentRequest:
+    agent_id: str
+    task: str
+    allowed_tools: list[str] = field(default_factory=list)
+    max_turns: int = 8
+
+@dataclass
+class ChildAgentResult:
+    agent_id: str
+    summary: str
+    messages: list[dict[str, Any]] = field(default_factory=list)
+
+async def run_child_agent(request: ChildAgentRequest, model: Any, tools: dict[str, Any]) -> ChildAgentResult:
+    messages = [{"role": "user", "content": request.task}]
+    for _ in range(request.max_turns):
+        response = await model.complete(messages, tools)
+        messages.append(response)
+        if not response.get("tool_uses"):
+            return ChildAgentResult(request.agent_id, str(response.get("content", "")), messages)
+    return ChildAgentResult(request.agent_id, "子 Agent 达到最大轮数", messages)
 ```
 
 运行时：
 
 ```python
+from dataclasses import dataclass, field
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ChildAgentRequest:
+    agent_id: str
+    task: str
+    allowed_tools: list[str] = field(default_factory=list)
+    max_turns: int = 8
+
+@dataclass
+class ChildAgentResult:
+    agent_id: str
+    summary: str
+    messages: list[dict[str, Any]] = field(default_factory=list)
+
+async def run_child_agent(request: ChildAgentRequest, model: Any, tools: dict[str, Any]) -> ChildAgentResult:
+    messages = [{"role": "user", "content": request.task}]
+    for _ in range(request.max_turns):
+        response = await model.complete(messages, tools)
+        messages.append(response)
+        if not response.get("tool_uses"):
+            return ChildAgentResult(request.agent_id, str(response.get("content", "")), messages)
+    return ChildAgentResult(request.agent_id, "子 Agent 达到最大轮数", messages)
 ```
 
 不同 Agent 的上限可以不同：
@@ -1237,21 +1462,37 @@ def deny_message(rule: PermissionRule) -> dict[str, str]:
 同名覆盖可以用 Map：
 
 ```python
-from typing import Any
+from pathlib import Path
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+def resolve_inside_workspace(workspace: Path, user_path: str) -> Path:
+    root = workspace.resolve()
+    target = (root / user_path).resolve()
+    if target != root and root not in target.parents:
+        raise ValueError(f"路径越界: {user_path}")
+    return target
+
+def read_text_file(workspace: Path, user_path: str, limit: int = 200) -> str:
+    file_path = resolve_inside_workspace(workspace, user_path)
+    lines = file_path.read_text(encoding="utf-8").splitlines()
+    return "\n".join(lines[:limit])
 ```
 
 注意覆盖顺序很重要。Claude Code 中会区分 built-in、plugin、userSettings、projectSettings、flagSettings、policySettings 等来源。教学版可以先定义：
 
 ```python
-activeAgents = mergeAgents([
-builtInAgents
-pluginAgents
-userAgents
-projectAgents
-policyAgents
+from pathlib import Path
+
+def resolve_inside_workspace(workspace: Path, user_path: str) -> Path:
+    root = workspace.resolve()
+    target = (root / user_path).resolve()
+    if target != root and root not in target.parents:
+        raise ValueError(f"路径越界: {user_path}")
+    return target
+
+def read_text_file(workspace: Path, user_path: str, limit: int = 200) -> str:
+    file_path = resolve_inside_workspace(workspace, user_path)
+    lines = file_path.read_text(encoding="utf-8").splitlines()
+    return "\n".join(lines[:limit])
 ```
 
 越靠后的来源优先级越高。
@@ -1342,22 +1583,24 @@ def deny_message(rule: PermissionRule) -> dict[str, str]:
 父 Agent 想审查认证模块：
 
 ```python
-await callAgentTool(
+from dataclasses import dataclass
+from typing import Any, Literal
 
-    "description": 'review auth module'
-    "subagent_type": 'code-reviewer'
-    "prompt": "
-    请审查 src/auth 目录。
-    重点关注 token 刷新、权限判断、错误处理和测试覆盖。
-    不要修改文件。
-    输出格式：
-    1. 严重问题
-    2. 中等问题
-    3. 建议
-    每条都要带文件路径。
-    "
-runtime
-)
+Decision = Literal["allow", "deny", "ask"]
+
+@dataclass
+class PermissionDecision:
+    decision: Decision
+    reason: str = ""
+    rule: str | None = None
+
+def check_tool_permission(tool_name: str, tool_input: dict[str, Any]) -> PermissionDecision:
+    command = str(tool_input.get("command", ""))
+    if tool_name == "Bash" and command.startswith("rm -rf"):
+        return PermissionDecision("deny", "危险删除命令", "Bash(rm -rf*)")
+    if tool_name in {"Read", "Grep"}:
+        return PermissionDecision("allow")
+    return PermissionDecision("ask", f"需要用户确认: {tool_name}")
 ```
 
 系统会：

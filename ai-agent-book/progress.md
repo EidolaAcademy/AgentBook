@@ -4,7 +4,7 @@
 
 当前阶段：第 6 卷生产工程、评估、回放与部署正在展开，书稿已改为每章独立 Markdown 文件。
 
-当前章节正文规模：约 61 万字符。
+当前章节正文规模：约 74 万字符。
 
 已完成：
 
@@ -52,6 +52,7 @@
 - 第 40 章：部署、文档站、GitHub Pages 与发布流程。
 - 附录 A：AI Agent 工程术语表。
 - 附录 B：Claude Code 源码阅读索引与学习路线。
+- 附录 C：mini-agent 完整 Python 代码清单。
 
 已完成结构调整：
 
@@ -62,11 +63,18 @@
 - `DEPLOY.md` 记录部署到 GitHub Pages 的步骤。
 - 已在 `outputs/ai-agent-book` 初始化本地 git 仓库，分支为 `main`。
 - 已将全书教学代码示例从旧版脚本风格统一改为 Python 风格，保留 JSON、YAML、bash、Mermaid、目录树等必要非 Python 格式。
+- 已完成 Python 代码块语法校验：`685` 个 Python 代码块，`0` 个语法错误。
+- 已修复附录 B 中被误改的 Claude Code 原仓库源码路径：`68` 个 `repo/src/...` 提及全部可在本地源码快照中找到。
+- 已新增完整可运行的 Python mini-agent 基准代码，覆盖消息结构、content block、会话日志、工具协议、读文件、搜索、命令执行、编辑、权限检查、工具注册和 Agent 主循环。
+- 已对附录 C 的完整代码执行加载测试：fake model 可调用 `Read` 工具读取临时工作区文件，并写入 transcript。
+- 已新增 `code-audit.md` 记录全书 Python 代码块审计结果：当前 `685` 个 Python 代码块语法错误为 `0`，但仍有 `20` 组完全重复代码块需要逐章清理。
+- 已修复第 2 章和第 5 章的重复 Python 代码块；这两章当前重复代码块分组均为 `0`。
 
 下一步：
 
-1. 可继续扩展附录：mini-agent 完整代码清单、常见问题与练习答案。
-2. 最终部署到 GitHub：需要目标 GitHub 仓库 URL、git user.email，或授权使用 GitHub CLI 创建仓库。
+1. 按 `code-audit.md` 继续逐章清理剩余重复代码块。
+2. 可继续扩展附录：常见问题与练习答案。
+3. 最终部署到 GitHub：需要目标 GitHub 仓库 URL、git user.email，或授权使用 GitHub CLI 创建仓库。
 
 说明：
 

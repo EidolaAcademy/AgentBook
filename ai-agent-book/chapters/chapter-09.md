@@ -128,9 +128,24 @@ def deny_message(rule: PermissionRule) -> dict[str, str]:
 例如：
 
 ```python
+from dataclasses import dataclass
+from typing import Any, Literal
 
-    "behavior": "deny"
-    "reason": "Plan mode does not allow shell commands that may modify files."
+Decision = Literal["allow", "deny", "ask"]
+
+@dataclass
+class PermissionDecision:
+    decision: Decision
+    reason: str = ""
+    rule: str | None = None
+
+def check_tool_permission(tool_name: str, tool_input: dict[str, Any]) -> PermissionDecision:
+    command = str(tool_input.get("command", ""))
+    if tool_name == "Bash" and command.startswith("rm -rf"):
+        return PermissionDecision("deny", "危险删除命令", "Bash(rm -rf*)")
+    if tool_name in {"Read", "Grep"}:
+        return PermissionDecision("allow")
+    return PermissionDecision("ask", f"需要用户确认: {tool_name}")
 ```
 
 这比简单返回 `false` 好得多。
@@ -192,11 +207,23 @@ Claude Code 中权限模式更多，例如 default、acceptEdits、plan、bypass
 
 ```python
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Literal
+
+Decision = Literal["allow", "deny", "ask"]
 
 @dataclass
-class PermissionContext:
-    "mode": PermissionMode
+class PermissionDecision:
+    decision: Decision
+    reason: str = ""
+    rule: str | None = None
+
+def check_tool_permission(tool_name: str, tool_input: dict[str, Any]) -> PermissionDecision:
+    command = str(tool_input.get("command", ""))
+    if tool_name == "Bash" and command.startswith("rm -rf"):
+        return PermissionDecision("deny", "危险删除命令", "Bash(rm -rf*)")
+    if tool_name in {"Read", "Grep"}:
+        return PermissionDecision("allow")
+    return PermissionDecision("ask", f"需要用户确认: {tool_name}")
 ```
 
 后面可以扩展：
@@ -352,24 +379,24 @@ Claude Code 也是类似分层，只是层数更多：
 现在 `runToolUse()` 在 call 前要检查权限：
 
 ```python
-permission = await checkToolPermission(:
-    tool
-    "input": parsed.data
-    context
+from dataclasses import dataclass
+from typing import Any, Literal
 
-if permission.behavior === "deny":
-    return toolResult(
-    toolUse.id
-    "Permission denied: {permission.reason}"
-    True
-    )
+Decision = Literal["allow", "deny", "ask"]
 
-if permission.behavior === "ask":
-    return toolResult(
-    toolUse.id
-    "Permission required: {permission.reason}"
-    True
-    )
+@dataclass
+class PermissionDecision:
+    decision: Decision
+    reason: str = ""
+    rule: str | None = None
+
+def check_tool_permission(tool_name: str, tool_input: dict[str, Any]) -> PermissionDecision:
+    command = str(tool_input.get("command", ""))
+    if tool_name == "Bash" and command.startswith("rm -rf"):
+        return PermissionDecision("deny", "危险删除命令", "Bash(rm -rf*)")
+    if tool_name in {"Read", "Grep"}:
+        return PermissionDecision("allow")
+    return PermissionDecision("ask", f"需要用户确认: {tool_name}")
 ```
 
 这只是第一版。它还不会真的问用户，只会告诉模型需要权限。
@@ -417,7 +444,7 @@ def deny_message(rule: PermissionRule) -> dict[str, str]:
 
 所以权限询问应该由运行环境处理，而不是工具内部处理。
 
-Claude Code 的 `useCanUseTool.python` 正是这个思想。工具和通用权限逻辑先得出 allow/deny/ask，交互式场景再把 ask 放入确认队列，UI 渲染权限弹窗。
+Claude Code 的 `useCanUseTool.tsx` 正是这个思想。工具和通用权限逻辑先得出 allow/deny/ask，交互式场景再把 ask 放入确认队列，UI 渲染权限弹窗。
 
 ### 9.10 PermissionPrompter
 
@@ -517,22 +544,24 @@ def deny_message(rule: PermissionRule) -> dict[str, str]:
 处理 ask：
 
 ```python
-if permission.behavior === "ask":
-    def if(self, !permissionPrompter):
-        return toolResult(
-        toolUse.id
-        "Permission required but no interactive prompt is available: {permission.reason}"
-        True
-        )
+from dataclasses import dataclass
+from typing import Any, Literal
 
-    allowed = await permissionPrompter.ask(permission.reason)
+Decision = Literal["allow", "deny", "ask"]
 
-    def if(self, !allowed):
-        return toolResult(
-        toolUse.id
-        "Permission denied by user: {permission.reason}"
-        True
-        )
+@dataclass
+class PermissionDecision:
+    decision: Decision
+    reason: str = ""
+    rule: str | None = None
+
+def check_tool_permission(tool_name: str, tool_input: dict[str, Any]) -> PermissionDecision:
+    command = str(tool_input.get("command", ""))
+    if tool_name == "Bash" and command.startswith("rm -rf"):
+        return PermissionDecision("deny", "危险删除命令", "Bash(rm -rf*)")
+    if tool_name in {"Read", "Grep"}:
+        return PermissionDecision("allow")
+    return PermissionDecision("ask", f"需要用户确认: {tool_name}")
 ```
 
 如果用户允许，就继续执行工具。
@@ -610,10 +639,24 @@ def deny_message(rule: PermissionRule) -> dict[str, str]:
 构造 ToolContext 时：
 
 ```python
-"context"::
-    "cwd": self.options.cwd
-    "permission"::
-        "mode": self.permissionMode
+from dataclasses import dataclass
+from typing import Any, Literal
+
+Decision = Literal["allow", "deny", "ask"]
+
+@dataclass
+class PermissionDecision:
+    decision: Decision
+    reason: str = ""
+    rule: str | None = None
+
+def check_tool_permission(tool_name: str, tool_input: dict[str, Any]) -> PermissionDecision:
+    command = str(tool_input.get("command", ""))
+    if tool_name == "Bash" and command.startswith("rm -rf"):
+        return PermissionDecision("deny", "危险删除命令", "Bash(rm -rf*)")
+    if tool_name in {"Read", "Grep"}:
+        return PermissionDecision("allow")
+    return PermissionDecision("ask", f"需要用户确认: {tool_name}")
 ```
 
 CLI 里处理：
@@ -716,8 +759,8 @@ Claude Code 中权限拒绝会变成模型可见的工具结果，例如 rejecte
 Claude Code 的权限系统关键文件包括：
 
 ```text
-src/tool.py
-src/hooks/useCanUseTool.python
+src/Tool.ts
+src/hooks/useCanUseTool.tsx
 src/mini_agent/utils/permissions/
 src/hooks/toolPermission/
 src/components/permissions/

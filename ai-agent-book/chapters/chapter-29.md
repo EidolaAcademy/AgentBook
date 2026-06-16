@@ -382,18 +382,24 @@ def deny_message(rule: PermissionRule) -> dict[str, str]:
 例如：
 
 ```python
-def explainDecision(reason: PermissionDecisionReason):
-    def switch(self, reason.type):
-        case "rule":
-        return "Matched {reason.rule.source} {reason.rule.behavior} rule {formatRule(reason.rule)}"
-        case "hook":
-        return "Decided by hook {reason.hookName}: {reason.reason  or  "no reason provided"}"
-        case "mode":
-        return "Decided by permission mode {reason.mode}"
-        case "safetyCheck":
-        return "Blocked by safety check: {reason.reason}"
-        "default":
-        return reason.reason
+from dataclasses import dataclass
+from typing import Any, Literal
+
+Decision = Literal["allow", "deny", "ask"]
+
+@dataclass
+class PermissionDecision:
+    decision: Decision
+    reason: str = ""
+    rule: str | None = None
+
+def check_tool_permission(tool_name: str, tool_input: dict[str, Any]) -> PermissionDecision:
+    command = str(tool_input.get("command", ""))
+    if tool_name == "Bash" and command.startswith("rm -rf"):
+        return PermissionDecision("deny", "危险删除命令", "Bash(rm -rf*)")
+    if tool_name in {"Read", "Grep"}:
+        return PermissionDecision("allow")
+    return PermissionDecision("ask", f"需要用户确认: {tool_name}")
 ```
 
 ## 29.8 用户等待时间也值得记录
@@ -445,21 +451,61 @@ Claude Code 的 analytics metadata 里有明显的隐私意识：
 不要这样：
 
 ```python
-analytics.track("tool_called",:
-    "command": input.command
-    "fullFileContent": content
-    "env": process.env
+import asyncio
+from dataclasses import dataclass
+from pathlib import Path
+
+@dataclass
+class CommandResult:
+    command: str
+    exit_code: int | None
+    stdout: str
+    stderr: str
+    timed_out: bool = False
+
+async def run_command(command: str, cwd: Path, timeout: float = 30.0) -> CommandResult:
+    process = await asyncio.create_subprocess_shell(
+        command,
+        cwd=str(cwd),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        process.kill()
+        return CommandResult(command, None, "", "命令超时", True)
+    return CommandResult(command, process.returncode, stdout.decode(), stderr.decode())
 ```
 
 更合理：
 
 ```python
-analytics.track("tool_called",:
-    toolName
-    "commandType": getCommandType(input.command)
-    "fileExtension": getSafeExtension(filePath)
-    success
-    durationMs
+import asyncio
+from dataclasses import dataclass
+from pathlib import Path
+
+@dataclass
+class CommandResult:
+    command: str
+    exit_code: int | None
+    stdout: str
+    stderr: str
+    timed_out: bool = False
+
+async def run_command(command: str, cwd: Path, timeout: float = 30.0) -> CommandResult:
+    process = await asyncio.create_subprocess_shell(
+        command,
+        cwd=str(cwd),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        process.kill()
+        return CommandResult(command, None, "", "命令超时", True)
+    return CommandResult(command, process.returncode, stdout.decode(), stderr.decode())
 ```
 
 敏感内容放 transcript 本地记录也要谨慎，更不要默认发到远程 analytics。
@@ -497,11 +543,19 @@ OTEL_LOG_TOOL_DETAILS=true
 教学版：
 
 ```python
-import json
+from dataclasses import dataclass
+from typing import Any
 
-def extractToolInputForTelemetry(input: Any):
-    if (not settings.telemetry.logToolDetails) return None
-    return json.dumps(truncateAndRedact(input))
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 这能在可观测性和隐私之间保持平衡。
@@ -842,9 +896,28 @@ def load_agent_task(task_id: str, root: Path) -> dict[str, Any]:
 启动时清理过期：
 
 ```python
-async def cleanupOldTranscripts(policy: RetentionPolicy):
-    if (not policy.enabled) return deleteAllTranscripts()
-    // 删除超过 maxDays 的记录
+import json
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+@dataclass
+class TranscriptEntry:
+    kind: str
+    session_id: str
+    message: dict[str, Any]
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+def append_transcript(path: Path, entry: TranscriptEntry) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as file:
+        file.write(json.dumps(asdict(entry), ensure_ascii=False) + "\n")
+
+def load_transcript(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 ```
 
 安全工具必须给用户可控性。
@@ -906,36 +979,60 @@ def deny_message(rule: PermissionRule) -> dict[str, str]:
 执行工具时：
 
 ```python
-audit.record(:
-    "type": "tool_requested"
-    toolUseId
-    "toolName": tool.name
-    "inputPreview": sanitizeForAudit(input)
-    "timestamp": time.time()
+from dataclasses import dataclass
+from typing import Any
+
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 权限决策时：
 
 ```python
-audit.record(:
-    "type": "permission_decision"
-    toolUseId
-    "decision": "accept"
-    "source": "user_once"
-    "reason": "User approved in prompt"
-    "timestamp": time.time()
+from dataclasses import dataclass
+from typing import Any, Literal
+
+Decision = Literal["allow", "deny", "ask"]
+
+@dataclass
+class PermissionDecision:
+    decision: Decision
+    reason: str = ""
+    rule: str | None = None
+
+def check_tool_permission(tool_name: str, tool_input: dict[str, Any]) -> PermissionDecision:
+    command = str(tool_input.get("command", ""))
+    if tool_name == "Bash" and command.startswith("rm -rf"):
+        return PermissionDecision("deny", "危险删除命令", "Bash(rm -rf*)")
+    if tool_name in {"Read", "Grep"}:
+        return PermissionDecision("allow")
+    return PermissionDecision("ask", f"需要用户确认: {tool_name}")
 ```
 
 工具结束时：
 
 ```python
-audit.record(:
-    "type": "tool_finished"
-    toolUseId
-    "success": True
-    durationMs
-    outputPreview
-    "timestamp": time.time()
+from dataclasses import dataclass
+from typing import Any
+
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 第一版可以内存存储。之后再写入本地 JSONL。

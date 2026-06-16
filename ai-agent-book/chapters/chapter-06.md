@@ -15,7 +15,7 @@
 5. 实现 `runToolUse()`。
 6. 实现第一个真实工具：`read_file`。
 7. 把工具结果作为 `tool_result` 回到消息历史。
-8. 对照 Claude Code 的 `src/tool.py` 和 `src/mini_agent/tools/FileReadTool/FileReadtool.py` 理解工程级设计。
+8. 对照 Claude Code 的 `src/Tool.ts` 和 `src/mini_agent/tools/FileReadTool/FileReadtool.py` 理解工程级设计。
 
 这一章是 Agent 从“会说话”到“会观察环境”的第一步。只要 `read_file` 跑通，后面的 `bash`、`write_file`、`grep`、`web_fetch` 本质上都是同一模式的扩展。
 
@@ -53,14 +53,31 @@ def read_text_file(workspace: Path, user_path: str) -> str:
 这在只有一个工具时能工作。但第二个工具来了怎么办？
 
 ```python
-if toolUse.name === "read_file":
-    // ...
-    } else if (toolUse.name == "bash"):
-        // ...
-        } else if (toolUse.name == "write_file"):
-            // ...
-            } else if (toolUse.name == "grep"):
-                // ...
+import asyncio
+from dataclasses import dataclass
+from pathlib import Path
+
+@dataclass
+class CommandResult:
+    command: str
+    exit_code: int | None
+    stdout: str
+    stderr: str
+    timed_out: bool = False
+
+async def run_command(command: str, cwd: Path, timeout: float = 30.0) -> CommandResult:
+    process = await asyncio.create_subprocess_shell(
+        command,
+        cwd=str(cwd),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        process.kill()
+        return CommandResult(command, None, "", "命令超时", True)
+    return CommandResult(command, process.returncode, stdout.decode(), stderr.decode())
 ```
 
 很快你会遇到一堆重复问题：
@@ -81,7 +98,7 @@ if toolUse.name === "read_file":
 根据名字找到工具 -> 校验 input -> 调用 tool.call -> 得到结果 -> 生成 tool_result
 ```
 
-这和 Claude Code 的设计一致。源码里的 `src/tool.py` 定义了非常完整的 Tool 类型，而 `src/services/tools/toolExecution.py` 只依赖这个统一接口执行工具。
+这和 Claude Code 的设计一致。源码里的 `src/Tool.ts` 定义了非常完整的 Tool 类型，而 `src/services/tools/toolExecution.ts` 只依赖这个统一接口执行工具。
 
 ### 6.3 一个工具应该回答哪些问题
 
@@ -115,10 +132,19 @@ def read_text_file(workspace: Path, user_path: str) -> str:
 为什么还需要 `formatResult`？因为工具内部返回的数据结构不一定适合直接给模型。例如读取文件时，我们可能希望内部返回：
 
 ```python
+from pathlib import Path
 
-    "path": "/abs/path/README.md"
-    "content": "..."
-    "lineCount": 120
+def resolve_inside_workspace(workspace: Path, user_path: str) -> Path:
+    root = workspace.resolve()
+    target = (root / user_path).resolve()
+    if target != root and root not in target.parents:
+        raise ValueError(f"路径越界: {user_path}")
+    return target
+
+def read_text_file(workspace: Path, user_path: str, limit: int = 200) -> str:
+    file_path = resolve_inside_workspace(workspace, user_path)
+    lines = file_path.read_text(encoding="utf-8").splitlines()
+    return "\n".join(lines[:limit])
 ```
 
 但给模型的内容可以格式化成：
@@ -134,7 +160,7 @@ Lines: 120
 
 ### 6.4 Claude Code 的 Tool 接口更复杂在哪里
 
-Claude Code 的 `src/tool.py` 里，Tool 接口远比我们的教学版复杂。它除了 `call`、`inputSchema`、`isReadOnly` 这些核心字段，还包含：
+Claude Code 的 `src/Tool.ts` 里，Tool 接口远比我们的教学版复杂。它除了 `call`、`inputSchema`、`isReadOnly` 这些核心字段，还包含：
 
 - `prompt()`：给模型看的工具说明。
 - `description()`：给用户或权限弹窗看的描述。
@@ -208,17 +234,24 @@ def read_text_file(workspace: Path, user_path: str) -> str:
 校验：
 
 ```python
-parsed = ReadFileInputSchema.safeParse(toolUse.input)
+from pathlib import Path
 
-def if(self, !parsed.success):
-    return toolError(toolUse.id, parsed.error.message)
+def resolve_inside_workspace(workspace: Path, user_path: str) -> Path:
+    root = workspace.resolve()
+    target = (root / user_path).resolve()
+    if target != root and root not in target.parents:
+        raise ValueError(f"路径越界: {user_path}")
+    return target
 
-input = parsed.data
+def read_text_file(workspace: Path, user_path: str, limit: int = 200) -> str:
+    file_path = resolve_inside_workspace(workspace, user_path)
+    lines = file_path.read_text(encoding="utf-8").splitlines()
+    return "\n".join(lines[:limit])
 ```
 
 从 `parsed.data` 开始，Python 知道 `input.path` 一定是 string，`offset` 如果存在就一定是非负整数。
 
-Claude Code 中也使用 Zod。`src/tool.py` 的 Tool 类型中有 `inputSchema`，具体工具例如 `FileReadTool`、`BashTool` 都会定义自己的 schema。`src/services/tools/toolExecution.py` 在执行工具前会先 `safeParse`，失败后返回 `InputValidationError` 给模型。
+Claude Code 中也使用 Zod。`src/Tool.ts` 的 Tool 类型中有 `inputSchema`，具体工具例如 `FileReadTool`、`BashTool` 都会定义自己的 schema。`src/services/tools/toolExecution.ts` 在执行工具前会先 `safeParse`，失败后返回 `InputValidationError` 给模型。
 
 这就是工程级 Agent 的基本纪律：模型参数先校验，再执行。
 
@@ -294,7 +327,7 @@ def read_text_file(workspace: Path, user_path: str) -> str:
 2. 根据名字查工具。
 3. 列出所有工具给模型。
 
-Claude Code 的 `src/tools.py` 是更复杂的注册表。它不是简单 map，而是根据 feature flag、权限模式、MCP、环境变量、agent 类型动态组装工具池。但本质还是“当前会话有哪些工具可用”。
+Claude Code 的 `src/tools.ts` 是更复杂的注册表。它不是简单 map，而是根据 feature flag、权限模式、MCP、环境变量、agent 类型动态组装工具池。但本质还是“当前会话有哪些工具可用”。
 
 ### 6.9 read_file 工具的需求
 
@@ -428,7 +461,7 @@ class TranscriptEntry:
 
 这些都是任务级错误，返回给模型，而不是让整个程序崩溃。
 
-这正是 Claude Code 的 `toolExecution.py` 思路。它会在找不到工具、Zod 校验失败、validateInput 失败、权限拒绝、call 抛错时生成模型可读的错误结果。
+这正是 Claude Code 的 `toolExecution.ts` 思路。它会在找不到工具、Zod 校验失败、validateInput 失败、权限拒绝、call 抛错时生成模型可读的错误结果。
 
 ### 6.13 把工具注册进 CLI
 
@@ -445,11 +478,19 @@ def createToolRegistry():
 然后启动 Engine 时传进去：
 
 ```python
-registry = createToolRegistry()
-engine = AgentEngine(:
-    "model": FakeModelClient()
-    "tools": registry
-    "cwd": process.cwd()
+from dataclasses import dataclass
+from typing import Any
+
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 这意味着 `AgentEngine` 构造函数需要升级。
@@ -501,15 +542,24 @@ class TranscriptEntry:
 所以必须加 `maxTurns`：
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 但注意，这里 throw 是系统级保护。它不是某个工具失败，而是 Agent 循环失控。真实产品会更温和地返回一条 assistant error message 或中断状态。
 
-Claude Code 的 `query.py` 也支持 `maxTurns`。工程级 Agent 一定要有上限，包括：
+Claude Code 的 `query.ts` 也支持 `maxTurns`。工程级 Agent 一定要有上限，包括：
 
 - 最大轮数。
 - 最大 token。

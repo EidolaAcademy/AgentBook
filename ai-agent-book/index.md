@@ -52,3 +52,4 @@ title: 从零搭建 AI Agent
 - [第 40 章：部署、文档站、GitHub Pages 与发布流程](chapters/chapter-40.md)
 - [附录 A：AI Agent 工程术语表](chapters/appendix-a-glossary.md)
 - [附录 B：Claude Code 源码阅读索引与学习路线](chapters/appendix-b-source-map.md)
+- [附录 C：mini-agent 完整 Python 代码清单](chapters/appendix-c-mini-agent-complete-code.md)

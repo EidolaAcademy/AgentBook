@@ -54,7 +54,7 @@ Agent 根据结果继续修或报告完成
 3. 改进 `AgentEngine`，支持多轮工具调用和 maxTurns。
 4. 理解工具结果如何影响下一步。
 5. 用 FakeModel 模拟一个完整任务。
-6. 对照 Claude Code 的 `query.py` 主循环。
+6. 对照 Claude Code 的 `query.ts` 主循环。
 
 ### 11.2 完整闭环是什么
 
@@ -238,7 +238,7 @@ def deny_message(rule: PermissionRule) -> dict[str, str]:
 - UI 显示“已达到最大轮数”。
 - transcript 记录停止原因。
 
-Claude Code 的 `query.py` 会返回 terminal reason，并且有更多预算控制。
+Claude Code 的 `query.ts` 会返回 terminal reason，并且有更多预算控制。
 
 ### 11.6 工具调用顺序
 
@@ -280,7 +280,7 @@ read_file A
 
 所以新手版先全部串行是合理的。后面讲并发时，再根据 `isConcurrencySafe` 分批。
 
-Claude Code 的 `toolOrchestration.py` 就是做这个事情：连续并发安全工具可以并行，不安全工具串行。
+Claude Code 的 `toolOrchestration.ts` 就是做这个事情：连续并发安全工具可以并行，不安全工具串行。
 
 ### 11.7 FakeModel 模拟完整任务
 

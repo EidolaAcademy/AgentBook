@@ -37,8 +37,8 @@ src/mini_agent/cli.py
 Claude Code：
 
 ```text
-src/entrypoints/cli.python
-src/main.python
+src/entrypoints/cli.ts
+src/main.tsx
 src/replLauncher.python
 src/screens/REPL.python
 ```
@@ -80,8 +80,8 @@ src/mini_agent/agent/engine.py
 Claude Code：
 
 ```text
-src/QueryEngine.py
-src/query.py
+src/QueryEngine.ts
+src/query.ts
 ```
 
 mini-agent 的 Engine 做：
@@ -127,7 +127,7 @@ src/mini_agent/tools/buildtool.py
 Claude Code：
 
 ```text
-src/tool.py
+src/Tool.ts
 ```
 
 mini-agent Tool：
@@ -177,10 +177,10 @@ src/mini_agent/tools/runToolUse.py
 Claude Code：
 
 ```text
-src/services/tools/toolExecution.py
-src/services/tools/toolOrchestration.py
-src/services/tools/StreamingToolExecutor.py
-src/services/tools/toolHooks.py
+src/services/tools/toolExecution.ts
+src/services/tools/toolOrchestration.ts
+src/services/tools/StreamingToolExecutor.ts
+src/services/tools/toolHooks.ts
 ```
 
 mini-agent 的执行流程：
@@ -210,7 +210,7 @@ Claude Code 的执行流程还包括：
 - streaming execution。
 - contextModifier。
 
-但骨架一样。理解 mini-agent 的 `runToolUse()`，再读 `toolExecution.py` 会轻松很多。
+但骨架一样。理解 mini-agent 的 `runToolUse()`，再读 `toolExecution.ts` 会轻松很多。
 
 ### 17.6 文件工具映射
 
@@ -272,7 +272,7 @@ OutputAccumulator
 Claude Code：
 
 ```text
-src/mini_agent/tools/BashTool/BashTool.python
+src/mini_agent/tools/BashTool/BashTool.tsx
 src/mini_agent/tools/BashTool/bashPermissions.py
 src/mini_agent/tools/BashTool/readOnlyValidation.py
 src/mini_agent/tools/BashTool/commandSemantics.py
@@ -317,7 +317,7 @@ checkToolPermission
 Claude Code：
 
 ```text
-src/hooks/useCanUseTool.python
+src/hooks/useCanUseTool.tsx
 src/mini_agent/utils/permissions/
 src/hooks/toolPermission/
 src/components/permissions/
@@ -361,8 +361,8 @@ fromApiMessage
 Claude Code：
 
 ```text
-src/services/api/claude.py
-src/services/api/client.py
+src/services/api/claude.ts
+src/services/api/client.ts
 src/mini_agent/utils/api.js
 src/mini_agent/utils/messages.js
 ```
@@ -409,7 +409,7 @@ Claude Code：
 ```text
 src/services/compact/
 src/mini_agent/utils/toolResultStorage.py
-src/services/tokenEstimation.py
+src/services/tokenEstimation.ts
 src/memdir/
 src/services/SessionMemory/
 ```
@@ -445,7 +445,7 @@ loadMessages
 Claude Code：
 
 ```text
-src/mini_agent/utils/sessionStorage.py
+src/mini_agent/utils/sessionStorage.ts
 src/mini_agent/utils/conversationRecovery.py
 src/commands/resume/
 src/mini_agent/tools/AgentTool/runAgent.py
@@ -494,9 +494,9 @@ mini-agent 是骨架。Claude Code 是骨架加上真实世界的肌肉、神经
 
 你现在应该能带着问题读源码：
 
-- 想看入口，读 `entrypoints/cli.python` 和 `main.python`。
-- 想看 Agent 循环，读 `QueryEngine.py` 和 `query.py`。
-- 想看工具接口，读 `tool.py`。
+- 想看入口，读 `entrypoints/cli.ts` 和 `main.tsx`。
+- 想看 Agent 循环，读 `QueryEngine.ts` 和 `query.ts`。
+- 想看工具接口，读 `Tool.ts`。
 - 想看工具执行，读 `services/tools/*`。
 - 想看文件工具，读 `FileReadTool`、`FileEditTool`、`FileWriteTool`。
 - 想看 Shell，读 `BashTool`。

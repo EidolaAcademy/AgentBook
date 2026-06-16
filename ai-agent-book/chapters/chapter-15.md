@@ -194,14 +194,19 @@ class TranscriptEntry:
 启动时：
 
 ```python
-initialMessages = await loadMessages(sessionPath)
+from pathlib import Path
 
-engine = AgentEngine(:
-    model
-    tools
-    cwd
-    initialMessages
-    transcript
+def resolve_inside_workspace(workspace: Path, user_path: str) -> Path:
+    root = workspace.resolve()
+    target = (root / user_path).resolve()
+    if target != root and root not in target.parents:
+        raise ValueError(f"路径越界: {user_path}")
+    return target
+
+def read_text_file(workspace: Path, user_path: str, limit: int = 200) -> str:
+    file_path = resolve_inside_workspace(workspace, user_path)
+    lines = file_path.read_text(encoding="utf-8").splitlines()
+    return "\n".join(lines[:limit])
 ```
 
 Engine 构造：
@@ -310,10 +315,28 @@ assistant: tool_use ...
 教学项目可以先检测：
 
 ```python
-unresolved = findUnresolvedToolUses(messages)
+import json
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
-def if(self, unresolved.length > 0):
-    console.warn("Warning: session has unresolved tool uses.")
+@dataclass
+class TranscriptEntry:
+    kind: str
+    session_id: str
+    message: dict[str, Any]
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+def append_transcript(path: Path, entry: TranscriptEntry) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as file:
+        file.write(json.dumps(asdict(entry), ensure_ascii=False) + "\n")
+
+def load_transcript(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 ```
 
 Claude Code 有更完整的 conversation recovery 逻辑，会处理不完整消息、工具结果、compact boundary 等。

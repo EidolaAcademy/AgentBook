@@ -11,7 +11,19 @@
 如果你只是这样写：
 
 ```python
-void runChildAgent(prompt)
+from dataclasses import dataclass
+from typing import Any
+
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 那这个子 Agent 就像被扔进空气里的一段 Promise。它可能成功，可能失败，可能卡住，可能被用户取消，可能产生结果，也可能留下后台命令。父 Agent、用户界面、SDK、日志系统都很难知道它到底处于什么状态。
@@ -317,10 +329,24 @@ def read_text_file(workspace: Path, user_path: str) -> str:
 教学版：
 
 ```python
-from typing import Any
+from dataclasses import dataclass
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class Message:
+    role: str
+    content: str
+
+def estimate_tokens(text: str) -> int:
+    return max(1, len(text) // 4)
+
+def compact_messages(messages: list[Message], max_tokens: int, keep_recent: int = 6) -> list[Message]:
+    total = sum(estimate_tokens(message.content) for message in messages)
+    if total <= max_tokens:
+        return messages
+    old = messages[:-keep_recent]
+    recent = messages[-keep_recent:]
+    summary = "\n".join(f"- {message.role}: {message.content[:120]}" for message in old)
+    return [Message(role="system", content=f"历史摘要:\n{summary}"), *recent]
 ```
 
 每次收到 assistant message：
@@ -511,14 +537,24 @@ def deny_message(rule: PermissionRule) -> dict[str, str]:
 生命周期：
 
 ```python
-try:
-    result = await runAgent()
-    completeTask(taskId, result, setState)
-    await cleanupAndNotifyCompleted()
-    } catch (error):
-        message = error instanceof Error ? error.message : String(error)
-        failTask(taskId, message, setState)
-        await cleanupAndNotifyFailed(message)
+from dataclasses import dataclass
+from typing import Any, Literal
+
+Decision = Literal["allow", "deny", "ask"]
+
+@dataclass
+class PermissionDecision:
+    decision: Decision
+    reason: str = ""
+    rule: str | None = None
+
+def check_tool_permission(tool_name: str, tool_input: dict[str, Any]) -> PermissionDecision:
+    command = str(tool_input.get("command", ""))
+    if tool_name == "Bash" and command.startswith("rm -rf"):
+        return PermissionDecision("deny", "危险删除命令", "Bash(rm -rf*)")
+    if tool_name in {"Read", "Grep"}:
+        return PermissionDecision("allow")
+    return PermissionDecision("ask", f"需要用户确认: {tool_name}")
 ```
 
 失败通知应该包含：
@@ -711,12 +747,19 @@ def deny_message(rule: PermissionRule) -> dict[str, str]:
 任务完成前要取消 timer：
 
 ```python
-cancelAutoBackground = registerAutoBackground(...)
+from dataclasses import dataclass
+from typing import Any
 
-try:
-    await runAgent()
-    } finally:
-        cancelAutoBackground()
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 注意，不要在每一轮循环里重复注册 timer 或 promise，否则会积累回调。源码里也特别避免了这种问题：background race promise 要在循环外创建。
@@ -760,12 +803,24 @@ def format_agent_result(result: AgentResult) -> str:
 入队：
 
 ```python
-import json
+from dataclasses import dataclass
+from typing import Any, Literal
 
-def enqueueAgentNotification(notification: TaskNotification):
-    messageQueue.append(:
-        "mode": 'task-notification'
-        "value": json.dumps(notification)
+Decision = Literal["allow", "deny", "ask"]
+
+@dataclass
+class PermissionDecision:
+    decision: Decision
+    reason: str = ""
+    rule: str | None = None
+
+def check_tool_permission(tool_name: str, tool_input: dict[str, Any]) -> PermissionDecision:
+    command = str(tool_input.get("command", ""))
+    if tool_name == "Bash" and command.startswith("rm -rf"):
+        return PermissionDecision("deny", "危险删除命令", "Bash(rm -rf*)")
+    if tool_name in {"Read", "Grep"}:
+        return PermissionDecision("allow")
+    return PermissionDecision("ask", f"需要用户确认: {tool_name}")
 ```
 
 主循环读取后，可以把它作为 attachment 交给父 Agent：
@@ -816,10 +871,24 @@ def deny_message(rule: PermissionRule) -> dict[str, str]:
 发送通知前：
 
 ```python
-def if(self, !markNotifiedOnce(taskId, setState)):
-    return
+from dataclasses import dataclass
+from typing import Any, Literal
 
-enqueueAgentNotification(...)
+Decision = Literal["allow", "deny", "ask"]
+
+@dataclass
+class PermissionDecision:
+    decision: Decision
+    reason: str = ""
+    rule: str | None = None
+
+def check_tool_permission(tool_name: str, tool_input: dict[str, Any]) -> PermissionDecision:
+    command = str(tool_input.get("command", ""))
+    if tool_name == "Bash" and command.startswith("rm -rf"):
+        return PermissionDecision("deny", "危险删除命令", "Bash(rm -rf*)")
+    if tool_name in {"Read", "Grep"}:
+        return PermissionDecision("allow")
+    return PermissionDecision("ask", f"需要用户确认: {tool_name}")
 ```
 
 这是一个很小但很关键的幂等设计。
@@ -901,10 +970,19 @@ def format_agent_result(result: AgentResult) -> str:
 可以记录 offset：
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 读取增量：
@@ -1006,10 +1084,19 @@ async def resumeAgentTask(taskId: str):
 如果 Agent 正在工具执行中，不能立刻把消息插入模型上下文。更安全的方式是排队：
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 发送：
@@ -1189,12 +1276,30 @@ Explore tests
 父 Agent 收集结果后合并：
 
 ```python
-results = await Promise.all([
-delegate('explore frontend')
-delegate('explore backend')
-delegate('explore tests')
+from dataclasses import dataclass, field
+from typing import Any
 
-merged = mergeExplorationResults(results)
+@dataclass
+class ChildAgentRequest:
+    agent_id: str
+    task: str
+    allowed_tools: list[str] = field(default_factory=list)
+    max_turns: int = 8
+
+@dataclass
+class ChildAgentResult:
+    agent_id: str
+    summary: str
+    messages: list[dict[str, Any]] = field(default_factory=list)
+
+async def run_child_agent(request: ChildAgentRequest, model: Any, tools: dict[str, Any]) -> ChildAgentResult:
+    messages = [{"role": "user", "content": request.task}]
+    for _ in range(request.max_turns):
+        response = await model.complete(messages, tools)
+        messages.append(response)
+        if not response.get("tool_uses"):
+            return ChildAgentResult(request.agent_id, str(response.get("content", "")), messages)
+    return ChildAgentResult(request.agent_id, "子 Agent 达到最大轮数", messages)
 ```
 
 并行探索是最适合先实现的多 Agent 模式，因为不涉及文件修改冲突。
@@ -1299,11 +1404,24 @@ class AgentTaskState:
 如果用户正在查看某个任务，就 `retain = true`，不要清理。否则完成后 30 秒清理：
 
 ```python
-def maybeEvictTask(task: AgentTaskState):
-    if (task.retain) return False
-    if (not isTerminalStatus(task.status)) return False
-    if (not task.notified) return False
-    return time.time() > (task.evictAfter  or  0)
+from dataclasses import dataclass
+from typing import Any, Literal
+
+Decision = Literal["allow", "deny", "ask"]
+
+@dataclass
+class PermissionDecision:
+    decision: Decision
+    reason: str = ""
+    rule: str | None = None
+
+def check_tool_permission(tool_name: str, tool_input: dict[str, Any]) -> PermissionDecision:
+    command = str(tool_input.get("command", ""))
+    if tool_name == "Bash" and command.startswith("rm -rf"):
+        return PermissionDecision("deny", "危险删除命令", "Bash(rm -rf*)")
+    if tool_name in {"Read", "Grep"}:
+        return PermissionDecision("allow")
+    return PermissionDecision("ask", f"需要用户确认: {tool_name}")
 ```
 
 注意，清理内存状态不代表删除磁盘 transcript。内存任务可以 GC，审计记录仍然保留。

@@ -144,7 +144,7 @@ Claude Code 里和搜索相关的工具包括：
 ```text
 src/mini_agent/tools/GlobTool/
 src/mini_agent/tools/GrepTool/
-src/mini_agent/tools/BashTool/BashTool.python
+src/mini_agent/tools/BashTool/BashTool.tsx
 ```
 
 `GlobTool` 用于按路径模式找文件。
@@ -204,9 +204,19 @@ Claude Code 会更多依赖 `ripgrep` 等成熟工具来处理速度和忽略规
 先设计 `glob_files`：
 
 ```python
-inputSchema =:
-    "pattern": str
-    "maxResults": int.positive() | None
+from pathlib import Path
+
+def resolve_inside_workspace(workspace: Path, user_path: str) -> Path:
+    root = workspace.resolve()
+    target = (root / user_path).resolve()
+    if target != root and root not in target.parents:
+        raise ValueError(f"路径越界: {user_path}")
+    return target
+
+def read_text_file(workspace: Path, user_path: str, limit: int = 200) -> str:
+    file_path = resolve_inside_workspace(workspace, user_path)
+    lines = file_path.read_text(encoding="utf-8").splitlines()
+    return "\n".join(lines[:limit])
 ```
 
 字段含义：
@@ -238,10 +248,19 @@ def read_text_file(workspace: Path, user_path: str) -> str:
 再设计 `grep_files`：
 
 ```python
-inputSchema =:
-    "pattern": str
-    "include": str | None
-    "maxResults": int.positive() | None
+from pathlib import Path
+
+def resolve_inside_workspace(workspace: Path, user_path: str) -> Path:
+    root = workspace.resolve()
+    target = (root / user_path).resolve()
+    if target != root and root not in target.parents:
+        raise ValueError(f"路径越界: {user_path}")
+    return target
+
+def read_text_file(workspace: Path, user_path: str, limit: int = 200) -> str:
+    file_path = resolve_inside_workspace(workspace, user_path)
+    lines = file_path.read_text(encoding="utf-8").splitlines()
+    return "\n".join(lines[:limit])
 ```
 
 字段含义：
@@ -329,16 +348,22 @@ coverage/
 所以先定义忽略目录：
 
 ```python
-DEFAULT_IGNORED_DIRS =:
-    ".git"
-    "node_modules"
-    "dist"
-    "build"
-    ".next"
-    "coverage"
-    ".cache"
-    ".turbo"
-    ".parcel-cache"
+from dataclasses import dataclass
+from pathlib import Path
+import subprocess
+
+@dataclass
+class AgentWorktree:
+    path: Path
+    branch: str
+
+def create_agent_worktree(repo: Path, branch: str, target: Path) -> AgentWorktree:
+    subprocess.run(["git", "worktree", "add", str(target), branch], cwd=repo, check=True)
+    return AgentWorktree(path=target, branch=branch)
+
+def get_worktree_diff(worktree: AgentWorktree) -> str:
+    result = subprocess.run(["git", "diff"], cwd=worktree.path, text=True, capture_output=True, check=False)
+    return result.stdout
 ```
 
 再写判断函数：
@@ -408,10 +433,19 @@ def remove_agent_worktree(repo: Path, worktree: AgentWorktree) -> None:
 但为了教学，我们先实现一个非常简化的 glob：
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 这个版本支持：
@@ -471,30 +505,19 @@ Results were truncated. Use a more specific pattern.
 先写一个简单判断：
 
 ```python
-TEXT_FILE_EXTENSIONS =:
-    ".py"
-    ".python"
-    ".js"
-    ".jsx"
-    ".json"
-    ".md"
-    ".txt"
-    ".css"
-    ".html"
-    ".yml"
-    ".yaml"
-    ".toml"
-    ".py"
-    ".go"
-    ".rs"
-    ".java"
-    ".c"
-    ".cpp"
-    ".h"
+from pathlib import Path
 
-def looksLikeTextFile(file: str):
-    ext = path.extname(file).lower()
-    return TEXT_FILE_EXTENSIONS.has(ext)
+def resolve_inside_workspace(workspace: Path, user_path: str) -> Path:
+    root = workspace.resolve()
+    target = (root / user_path).resolve()
+    if target != root and root not in target.parents:
+        raise ValueError(f"路径越界: {user_path}")
+    return target
+
+def read_text_file(workspace: Path, user_path: str, limit: int = 200) -> str:
+    file_path = resolve_inside_workspace(workspace, user_path)
+    lines = file_path.read_text(encoding="utf-8").splitlines()
+    return "\n".join(lines[:limit])
 ```
 
 这不是完美判断。没有扩展名的文本文件会被跳过，某些扩展名文件也可能是二进制。但教学项目可以先这样。
@@ -596,10 +619,23 @@ def read_text_file(workspace: Path, user_path: str) -> str:
 收到 tool_result 后，FakeModel 可以简单总结：
 
 ```python
-from typing import Any
+from dataclasses import dataclass
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class SearchResult:
+    tool_name: str
+    score: int
+    description: str
+
+def search_tools(query: str, tools: list[dict[str, str]], limit: int = 5) -> list[SearchResult]:
+    terms = [term.lower() for term in query.split() if term.strip()]
+    results: list[SearchResult] = []
+    for tool in tools:
+        haystack = f"{tool.get('name', '')} {tool.get('description', '')}".lower()
+        score = sum(1 for term in terms if term in haystack)
+        if score:
+            results.append(SearchResult(tool.get("name", ""), score, tool.get("description", "")))
+    return sorted(results, key=lambda item: item.score, reverse=True)[:limit]
 ```
 
 真实模型会根据结果决定是否继续读取文件。FakeModel 只是帮助我们验证链路。
@@ -654,10 +690,23 @@ src/auth/login.py:42: def login(...)
 `glob_files` 和 `grep_files` 都是只读工具，所以我们声明：
 
 ```python
-from typing import Any
+from dataclasses import dataclass
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class SearchResult:
+    tool_name: str
+    score: int
+    description: str
+
+def search_tools(query: str, tools: list[dict[str, str]], limit: int = 5) -> list[SearchResult]:
+    terms = [term.lower() for term in query.split() if term.strip()]
+    results: list[SearchResult] = []
+    for tool in tools:
+        haystack = f"{tool.get('name', '')} {tool.get('description', '')}".lower()
+        score = sum(1 for term in terms if term in haystack)
+        if score:
+            results.append(SearchResult(tool.get("name", ""), score, tool.get("description", "")))
+    return sorted(results, key=lambda item: item.score, reverse=True)[:limit]
 ```
 
 这意味着未来如果模型一次请求多个搜索：
@@ -692,7 +741,7 @@ class TranscriptEntry:
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 ```
 
-先串行没问题，简单可靠。后面讲并发时，我们会借鉴 Claude Code 的 `toolOrchestration.py`：
+先串行没问题，简单可靠。后面讲并发时，我们会借鉴 Claude Code 的 `toolOrchestration.ts`：
 
 1. 连续的并发安全工具可以放进一批。
 2. 不安全工具单独执行。

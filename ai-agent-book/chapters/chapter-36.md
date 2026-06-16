@@ -93,10 +93,19 @@ agent-memory/<agentType>/MEMORY.md
 教学版也建议这样设计：
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 ## 36.3 memory scope：user、project、local
@@ -104,10 +113,19 @@ def example(context: dict[str, Any]) -> dict[str, Any]:
 Claude Code 的 Agent memory 有三个 scope：
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 它们对应不同用途。
@@ -194,8 +212,19 @@ my-plugin:security-reviewer
 冒号在某些系统路径里不合适，可以替换成 `-`：
 
 ```python
-def sanitizeAgentTypeForPath(agentType: str):
-    return agentType.replace(/:/g, '-')
+from pathlib import Path
+
+def resolve_inside_workspace(workspace: Path, user_path: str) -> Path:
+    root = workspace.resolve()
+    target = (root / user_path).resolve()
+    if target != root and root not in target.parents:
+        raise ValueError(f"路径越界: {user_path}")
+    return target
+
+def read_text_file(workspace: Path, user_path: str, limit: int = 200) -> str:
+    file_path = resolve_inside_workspace(workspace, user_path)
+    lines = file_path.read_text(encoding="utf-8").splitlines()
+    return "\n".join(lines[:limit])
 ```
 
 ## 36.5 memory prompt 如何注入系统提示词
@@ -214,16 +243,19 @@ memory: project
 教学版：
 
 ```python
-def getSystemPrompt(agent: AgentDefinition):
-    prompt = agent.basePrompt
+from dataclasses import dataclass
+from typing import Any
 
-    def if(self, agent.memory):
-        prompt += '\n\n' + loadAgentMemoryPrompt(
-        agent.agentType
-        agent.memory
-        )
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
 
-    return prompt
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 `loadAgentMemoryPrompt` 做三件事：
@@ -367,10 +399,19 @@ Claude Code 中还有 memory snapshot 机制。它允许项目提供一份 memor
 检查逻辑：
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 第一次没有本地 memory 时，可以自动初始化。已有本地 memory 且 snapshot 更新时，不要直接覆盖，而是提示或标记 pending update。
@@ -388,11 +429,19 @@ def example(context: dict[str, Any]) -> dict[str, Any]:
 教学版：
 
 ```python
-def if(self, !hasLocalMemory):
-    await initializeFromSnapshot(agentType, scope)
-    } else if (snapshotIsNewer):
-        agent.pendingSnapshotUpdate =:
-            "snapshotTimestamp": snapshot.updatedAt
+from dataclasses import dataclass
+from typing import Any
+
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 这体现了一个原则：长期记忆属于用户和团队资产，不能静默覆盖。
@@ -595,10 +644,19 @@ async def run_command(command: str, timeout: float = 30.0) -> CommandResult:
 然后：
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 这样 transcript 中能看出某段内容来自 skill，而不是普通用户输入。
@@ -614,9 +672,31 @@ skill 可以有 hooks。例如加载某个 skill 时注册额外检查。
 教学版可以定义：
 
 ```python
-def canRegisterSkillHooks(skill: SkillCommand):
-    if (not policy.strictPluginOnlyHooks) return True
-    return skill.source == 'plugin'  or  skill.source == 'policy'
+import asyncio
+from dataclasses import dataclass
+from pathlib import Path
+
+@dataclass
+class CommandResult:
+    command: str
+    exit_code: int | None
+    stdout: str
+    stderr: str
+    timed_out: bool = False
+
+async def run_command(command: str, cwd: Path, timeout: float = 30.0) -> CommandResult:
+    process = await asyncio.create_subprocess_shell(
+        command,
+        cwd=str(cwd),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        process.kill()
+        return CommandResult(command, None, "", "命令超时", True)
+    return CommandResult(command, process.returncode, stdout.decode(), stderr.decode())
 ```
 
 原则是：内容可以读，hook 执行要更谨慎。因为 hook 是代码或命令，风险高于文本 prompt。
@@ -646,10 +726,24 @@ def read_text_file(workspace: Path, user_path: str) -> str:
 compact 时：
 
 ```python
-from typing import Any
+from dataclasses import dataclass
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class Message:
+    role: str
+    content: str
+
+def estimate_tokens(text: str) -> int:
+    return max(1, len(text) // 4)
+
+def compact_messages(messages: list[Message], max_tokens: int, keep_recent: int = 6) -> list[Message]:
+    total = sum(estimate_tokens(message.content) for message in messages)
+    if total <= max_tokens:
+        return messages
+    old = messages[:-keep_recent]
+    recent = messages[-keep_recent:]
+    summary = "\n".join(f"- {message.role}: {message.content[:120]}" for message in old)
+    return [Message(role="system", content=f"历史摘要:\n{summary}"), *recent]
 ```
 
 重点是 agentId。没有它，子 Agent A 的 skill 可能被恢复到子 Agent B 的上下文里，造成交叉污染。
@@ -756,28 +850,55 @@ Skill too large to preload. Use SkillTool when needed.
 测试一：路径隔离。
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 测试二：scope 隔离。
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 测试三：plugin agentType sanitize。
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 测试四：memory tool injection。
@@ -801,40 +922,91 @@ def read_text_file(workspace: Path, user_path: str) -> str:
 测试一：精确匹配。
 
 ```python
-expect(resolveSkillName('feature-spec', skills, agent))
-.toBe('feature-spec')
+from dataclasses import dataclass
+from typing import Any
+
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 测试二：插件前缀匹配。
 
 ```python
-agent = { agentType: 'pm:planner' }
-expect(resolveSkillName('feature-spec', skills, agent))
-.toBe('pm:feature-spec')
+from dataclasses import dataclass
+from typing import Any
+
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 测试三：不存在 skill 不应崩溃。
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 测试四：非 prompt skill 不 preload。
 
 ```python
-expect(preloaded).not.toContain(nonPromptSkill)
+from dataclasses import dataclass
+from typing import Any
+
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 测试五：skill 记录带 agentId。
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 ## 36.24 常见错误

@@ -271,9 +271,31 @@ Bash(pytest)
 输出：
 
 ```python
+import asyncio
+from dataclasses import dataclass
+from pathlib import Path
 
-    "toolName": "Bash"
-    "ruleContent": "pytest"
+@dataclass
+class CommandResult:
+    command: str
+    exit_code: int | None
+    stdout: str
+    stderr: str
+    timed_out: bool = False
+
+async def run_command(command: str, cwd: Path, timeout: float = 30.0) -> CommandResult:
+    process = await asyncio.create_subprocess_shell(
+        command,
+        cwd=str(cwd),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        process.kill()
+        return CommandResult(command, None, "", "命令超时", True)
+    return CommandResult(command, process.returncode, stdout.decode(), stderr.decode())
 ```
 
 最简单版本：
@@ -323,19 +345,19 @@ Claude Code 的解析器处理了：
 教学版可以先支持转义：
 
 ```python
-def findFirstUnescaped(str: str, ch: str):
-    for i in range(0, str.length):
-        if (str[i] != ch) continue
+from dataclasses import dataclass
+from typing import Any
 
-        backslashes = 0
-        j = i - 1
-        while j >= 0 && str[j] === "\\":
-            backslashes++
-            j--
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
 
-        if (backslashes % 2 == 0) return i
-
-    return -1
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 然后解析：
@@ -505,10 +527,19 @@ tool.name === name || tool.aliases includes name
 教学版也可以这样：
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 别名有两个用途。
@@ -825,8 +856,24 @@ def deny_message(rule: PermissionRule) -> dict[str, str]:
 然后：
 
 ```python
-if choice.type === "add_rule":
-    permissionStore.add(choice.rule)
+from dataclasses import dataclass
+from typing import Any, Literal
+
+Decision = Literal["allow", "deny", "ask"]
+
+@dataclass
+class PermissionDecision:
+    decision: Decision
+    reason: str = ""
+    rule: str | None = None
+
+def check_tool_permission(tool_name: str, tool_input: dict[str, Any]) -> PermissionDecision:
+    command = str(tool_input.get("command", ""))
+    if tool_name == "Bash" and command.startswith("rm -rf"):
+        return PermissionDecision("deny", "危险删除命令", "Bash(rm -rf*)")
+    if tool_name in {"Read", "Grep"}:
+        return PermissionDecision("allow")
+    return PermissionDecision("ask", f"需要用户确认: {tool_name}")
 ```
 
 ## 26.13 规则内容由工具解释
@@ -949,10 +996,19 @@ deny Read(.env)
 教学版简化：
 
 ```python
-from typing import Any
+from pathlib import Path
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+def resolve_inside_workspace(workspace: Path, user_path: str) -> Path:
+    root = workspace.resolve()
+    target = (root / user_path).resolve()
+    if target != root and root not in target.parents:
+        raise ValueError(f"路径越界: {user_path}")
+    return target
+
+def read_text_file(workspace: Path, user_path: str, limit: int = 200) -> str:
+    file_path = resolve_inside_workspace(workspace, user_path)
+    lines = file_path.read_text(encoding="utf-8").splitlines()
+    return "\n".join(lines[:limit])
 ```
 
 生产版还要处理：

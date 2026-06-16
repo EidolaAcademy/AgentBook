@@ -248,14 +248,24 @@ def deny_message(rule: PermissionRule) -> dict[str, str]:
 例如：
 
 ```python
+from dataclasses import dataclass
+from typing import Any, Literal
 
-    "mode": "default"
-    "additionalWorkingDirectories": []
-    "rules": [
-    { toolName: "Read", pattern: "/project/**", behavior: "allow", source: "session" }
-    { toolName: "Edit", pattern: "/project/src/**", behavior: "ask", source: "user" }
-    { toolName: "Bash", pattern: "rm *", behavior: "deny", source: "project" }
-"isBypassPermissionsModeAvailable": False
+Decision = Literal["allow", "deny", "ask"]
+
+@dataclass
+class PermissionDecision:
+    decision: Decision
+    reason: str = ""
+    rule: str | None = None
+
+def check_tool_permission(tool_name: str, tool_input: dict[str, Any]) -> PermissionDecision:
+    command = str(tool_input.get("command", ""))
+    if tool_name == "Bash" and command.startswith("rm -rf"):
+        return PermissionDecision("deny", "危险删除命令", "Bash(rm -rf*)")
+    if tool_name in {"Read", "Grep"}:
+        return PermissionDecision("allow")
+    return PermissionDecision("ask", f"需要用户确认: {tool_name}")
 ```
 
 真实系统会把规则按来源和行为分开存储，便于加载、覆盖、持久化和解释。教学版可以先用一个数组。

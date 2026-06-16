@@ -73,15 +73,44 @@ def read_text_file(workspace: Path, user_path: str) -> str:
 然后客户端可以调用：
 
 ```python
-client.callTool(:
-    "name": "search_issues"
-    "arguments": { query: "bug" }
+from dataclasses import dataclass
+
+@dataclass
+class SearchResult:
+    tool_name: str
+    score: int
+    description: str
+
+def search_tools(query: str, tools: list[dict[str, str]], limit: int = 5) -> list[SearchResult]:
+    terms = [term.lower() for term in query.split() if term.strip()]
+    results: list[SearchResult] = []
+    for tool in tools:
+        haystack = f"{tool.get('name', '')} {tool.get('description', '')}".lower()
+        score = sum(1 for term in terms if term in haystack)
+        if score:
+            results.append(SearchResult(tool.get("name", ""), score, tool.get("description", "")))
+    return sorted(results, key=lambda item: item.score, reverse=True)[:limit]
 ```
 
 我们要把它包装成：
 
 ```python
-Tool<Input, Output>
+from dataclasses import dataclass
+from typing import Any
+
+@dataclass
+class McpTool:
+    server_name: str
+    name: str
+    description: str
+    input_schema: dict[str, Any]
+
+def wrap_mcp_tool(tool: McpTool) -> dict[str, Any]:
+    return {
+        "name": f"mcp__{tool.server_name}__{tool.name}",
+        "description": tool.description,
+        "input_schema": tool.input_schema,
+    }
 ```
 
 ### 23.4 命名空间问题
@@ -181,10 +210,19 @@ def read_text_file(workspace: Path, user_path: str) -> str:
 执行时：
 
 ```python
-def if(self, tool.inputSchema):
-    parsed = tool.inputSchema.safeParse(input)
-    } else if (tool.inputJsonSchema):
-        parsed = validateJsonSchema(tool.inputJsonSchema, input)
+from dataclasses import dataclass
+from typing import Any
+
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 JSON Schema 校验可以用 Ajv。
@@ -196,7 +234,19 @@ JSON Schema 校验可以用 Ajv。
 MCP tool 可能声明：
 
 ```python
-"readOnlyHint": True
+from pathlib import Path
+
+def resolve_inside_workspace(workspace: Path, user_path: str) -> Path:
+    root = workspace.resolve()
+    target = (root / user_path).resolve()
+    if target != root and root not in target.parents:
+        raise ValueError(f"路径越界: {user_path}")
+    return target
+
+def read_text_file(workspace: Path, user_path: str, limit: int = 200) -> str:
+    file_path = resolve_inside_workspace(workspace, user_path)
+    lines = file_path.read_text(encoding="utf-8").splitlines()
+    return "\n".join(lines[:limit])
 ```
 
 但外部 server 是否可信？
@@ -225,10 +275,22 @@ MCP server 提供的 description 会进入模型上下文。
 所以要：
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class McpTool:
+    server_name: str
+    name: str
+    description: str
+    input_schema: dict[str, Any]
+
+def wrap_mcp_tool(tool: McpTool) -> dict[str, Any]:
+    return {
+        "name": f"mcp__{tool.server_name}__{tool.name}",
+        "description": tool.description,
+        "input_schema": tool.input_schema,
+    }
 ```
 
 Claude Code 会限制 MCP description 长度，并清洗 unicode/whitespace。

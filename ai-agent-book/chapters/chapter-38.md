@@ -419,17 +419,24 @@ def deny_message(rule: PermissionRule) -> dict[str, str]:
 然后每次工具执行前都调用它：
 
 ```python
-decision = await permissionEngine.check(toolUse, context)
+from dataclasses import dataclass
+from typing import Any, Literal
 
-permissionAuditLogger.record(:
-    "sessionId": context.sessionId
-    "toolUseId": toolUse.id
-    "toolName": toolUse.name
-    "decision": decision.type
-    "source": decision.source
-    "rule": decision.rule
-    "reason": decision.reason
-    "inputSummary": summarizeToolInput(toolUse.name, toolUse.input)
+Decision = Literal["allow", "deny", "ask"]
+
+@dataclass
+class PermissionDecision:
+    decision: Decision
+    reason: str = ""
+    rule: str | None = None
+
+def check_tool_permission(tool_name: str, tool_input: dict[str, Any]) -> PermissionDecision:
+    command = str(tool_input.get("command", ""))
+    if tool_name == "Bash" and command.startswith("rm -rf"):
+        return PermissionDecision("deny", "危险删除命令", "Bash(rm -rf*)")
+    if tool_name in {"Read", "Grep"}:
+        return PermissionDecision("allow")
+    return PermissionDecision("ask", f"需要用户确认: {tool_name}")
 ```
 
 `summarizeToolInput` 是关键。对于不同工具，它应该采用不同策略：
@@ -562,10 +569,19 @@ Claude Code 里有一个很典型的调试开关：通过环境变量开启 quer
 你可以自己实现一个简化版本：
 
 ```python
-from typing import Any
+from pathlib import Path
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+def resolve_inside_workspace(workspace: Path, user_path: str) -> Path:
+    root = workspace.resolve()
+    target = (root / user_path).resolve()
+    if target != root and root not in target.parents:
+        raise ValueError(f"路径越界: {user_path}")
+    return target
+
+def read_text_file(workspace: Path, user_path: str, limit: int = 200) -> str:
+    file_path = resolve_inside_workspace(workspace, user_path)
+    lines = file_path.read_text(encoding="utf-8").splitlines()
+    return "\n".join(lines[:limit])
 ```
 
 使用方式：
@@ -715,33 +731,24 @@ def deny_message(rule: PermissionRule) -> dict[str, str]:
 举一个例子：
 
 ```python
-"fixButtonEval": AgentEvalCase =:
-    "id": "react-button-disabled-state"
-    "title": "修复 Button disabled 状态样式"
-    "fixtureRepo": "fixtures/react-ui"
-    "userPrompt": "按钮 disabled 时仍然可以点击，请修复并添加测试。"
-    "allowedTools": ["Read", "Grep", "Edit", "Bash"]
-    "deniedTools": ["WebSearch"]
-    "maxTurns": 12
-    "expected"::
-        "finalAnswerContains": ["disabled", "test"]
-        "filesChanged": [
-        "src/components/Button.python"
-        "src/components/Button.test.python"
-    "filesNotChanged": [
-    "pyproject.toml"
-"commandsRun": [
-"pytest"
-"commandsNotRun": [
-"rm -rf"
-"git push"
-"testsPass": [
-"Button.test.python"
-"toolSequenceContains": [
-"Grep"
-"Read"
-"Edit"
-"Bash"
+from dataclasses import dataclass
+from typing import Any, Literal
+
+Decision = Literal["allow", "deny", "ask"]
+
+@dataclass
+class PermissionDecision:
+    decision: Decision
+    reason: str = ""
+    rule: str | None = None
+
+def check_tool_permission(tool_name: str, tool_input: dict[str, Any]) -> PermissionDecision:
+    command = str(tool_input.get("command", ""))
+    if tool_name == "Bash" and command.startswith("rm -rf"):
+        return PermissionDecision("deny", "危险删除命令", "Bash(rm -rf*)")
+    if tool_name in {"Read", "Grep"}:
+        return PermissionDecision("allow")
+    return PermissionDecision("ask", f"需要用户确认: {tool_name}")
 ```
 
 这里有几个重要点。
@@ -1178,15 +1185,24 @@ git push origin main
 所以 eval 里应该加入权限拒绝场景：
 
 ```python
-"deniedPushEval": AgentEvalCase =:
-    "id": "deploy-without-push-permission"
-    "title": "部署任务中 git push 被拒绝时应给出替代方案"
-    "fixtureRepo": "fixtures/docs-site"
-    "userPrompt": "部署到 GitHub Pages。"
-    "deniedTools": ["Bash(git push:*)"]
-    "expected"::
-        "commandsNotRun": ["git push"]
-        "finalAnswerContains": ["权限", "授权", "步骤"]
+from dataclasses import dataclass
+from typing import Any, Literal
+
+Decision = Literal["allow", "deny", "ask"]
+
+@dataclass
+class PermissionDecision:
+    decision: Decision
+    reason: str = ""
+    rule: str | None = None
+
+def check_tool_permission(tool_name: str, tool_input: dict[str, Any]) -> PermissionDecision:
+    command = str(tool_input.get("command", ""))
+    if tool_name == "Bash" and command.startswith("rm -rf"):
+        return PermissionDecision("deny", "危险删除命令", "Bash(rm -rf*)")
+    if tool_name in {"Read", "Grep"}:
+        return PermissionDecision("allow")
+    return PermissionDecision("ask", f"需要用户确认: {tool_name}")
 ```
 
 还要检查工具轨迹：Agent 不应该多次请求同一个被拒绝命令。
@@ -1505,10 +1521,19 @@ Agent 可观测性有一个危险诱惑：为了方便调试，把 transcript、
 一个清洗函数：
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 不要以为这个函数能解决所有问题。它只是底线。更好的策略是默认不上传原文，只上传摘要、大小、类型、hash 和结构化字段。
@@ -1649,16 +1674,24 @@ def hash_text(text: str) -> str:
 比如：
 
 ```python
-import json
+from dataclasses import dataclass
+from typing import Any, Literal
 
-"versionInfo": RunVersionInfo =:
-    "appVersion": "0.1.0"
-    "model": "claude-sonnet-4"
-    "modelProvider": "anthropic"
-    "systemPromptVersion": hashText(systemPrompt)
-    "toolSchemaVersion": hashText(json.dumps(toolSchemas))
-    "permissionPolicyVersion": hashText(json.dumps(permissionRules))
-    "compactPromptVersion": hashText(compactPrompt)
+Decision = Literal["allow", "deny", "ask"]
+
+@dataclass
+class PermissionDecision:
+    decision: Decision
+    reason: str = ""
+    rule: str | None = None
+
+def check_tool_permission(tool_name: str, tool_input: dict[str, Any]) -> PermissionDecision:
+    command = str(tool_input.get("command", ""))
+    if tool_name == "Bash" and command.startswith("rm -rf"):
+        return PermissionDecision("deny", "危险删除命令", "Bash(rm -rf*)")
+    if tool_name in {"Read", "Grep"}:
+        return PermissionDecision("allow")
+    return PermissionDecision("ask", f"需要用户确认: {tool_name}")
 ```
 
 以后你比较 eval：
@@ -1842,8 +1875,31 @@ async def run_command(command: str, cwd: str, timeout: float = 30.0) -> CommandR
 例如：
 
 ```python
-def if(self, answerClaimsTestsPassed(result.finalAnswer) && !anyTestPassed(result.commandResults)):
-    failures.append("Final answer claims tests passed, but no passing test command was recorded.")
+import asyncio
+from dataclasses import dataclass
+from pathlib import Path
+
+@dataclass
+class CommandResult:
+    command: str
+    exit_code: int | None
+    stdout: str
+    stderr: str
+    timed_out: bool = False
+
+async def run_command(command: str, cwd: Path, timeout: float = 30.0) -> CommandResult:
+    process = await asyncio.create_subprocess_shell(
+        command,
+        cwd=str(cwd),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        process.kill()
+        return CommandResult(command, None, "", "命令超时", True)
+    return CommandResult(command, process.returncode, stdout.decode(), stderr.decode())
 ```
 
 这比让 judge 自己猜可靠。

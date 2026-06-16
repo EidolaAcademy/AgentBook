@@ -41,11 +41,11 @@
 优先阅读：
 
 ```text
-repo/src/main.python
-repo/src/query.py
-repo/src/QueryEngine.py
-repo/src/context.py
-repo/src/setup.py
+repo/src/main.tsx
+repo/src/query.ts
+repo/src/QueryEngine.ts
+repo/src/context.ts
+repo/src/setup.ts
 ```
 
 这些文件回答的问题：
@@ -59,7 +59,7 @@ repo/src/setup.py
 
 阅读方法：
 
-先读 `main.python`，找到 CLI/应用启动入口。然后读 `query.py`，寻找关键的 query 执行流程。再看 `QueryEngine.py`，理解 query 被封装成什么抽象。最后读 `context.py`，了解上下文组装逻辑。
+先读 `main.tsx`，找到 CLI/应用启动入口。然后读 `query.ts`，寻找关键的 query 执行流程。再看 `QueryEngine.ts`，理解 query 被封装成什么抽象。最后读 `context.py`，了解上下文组装逻辑。
 
 你不需要第一次就理解所有条件分支。先抓住一条主线：
 
@@ -80,10 +80,10 @@ repo/src/setup.py
 优先阅读：
 
 ```text
-repo/src/tool.py
-repo/src/tools.py
-repo/src/constants/tools.py
-repo/src/mini_agent/tools/
+repo/src/Tool.ts
+repo/src/tools.ts
+repo/src/constants/tools.ts
+repo/src/tools/
 ```
 
 这些文件回答的问题：
@@ -96,7 +96,7 @@ repo/src/mini_agent/tools/
 
 阅读方法：
 
-先读 `tool.py`。这是理解整个工具系统的关键。你要重点找：
+先读 `Tool.ts`。这是理解整个工具系统的关键。你要重点找：
 
 1. 工具定义字段。
 2. 输入 schema 类型。
@@ -104,9 +104,9 @@ repo/src/mini_agent/tools/
 4. 权限相关字段。
 5. 结果返回类型。
 
-然后读 `tools.py` 和 `constants/tools.py`，看工具如何集中导出、分组或命名。
+然后读 `tools.ts` 和 `constants/tools.ts`，看工具如何集中导出、分组或命名。
 
-最后进入 `repo/src/mini_agent/tools/`，按工具逐个看。不要一口气看完所有工具。建议顺序：
+最后进入 `repo/src/tools/`，按工具逐个看。不要一口气看完所有工具。建议顺序：
 
 1. Read 类工具。
 2. Grep/Glob 类工具。
@@ -132,10 +132,10 @@ repo/src/mini_agent/tools/
 ```text
 repo/src/commands/permissions/
 repo/src/components/permissions/
-repo/src/hooks/toolPermission/PermissionContext.py
-repo/src/hooks/toolPermission/permissionLogging.py
-repo/src/components/permissions/shellPermissionHelpers.python
-repo/src/components/permissions/utils.py
+repo/src/hooks/toolPermission/PermissionContext.ts
+repo/src/hooks/toolPermission/permissionLogging.ts
+repo/src/components/permissions/shellPermissionHelpers.tsx
+repo/src/components/permissions/utils.ts
 ```
 
 这些文件回答的问题：
@@ -165,11 +165,11 @@ repo/src/components/permissions/utils.py
 优先阅读：
 
 ```text
-repo/src/assistant/sessionHistory.py
+repo/src/assistant/sessionHistory.ts
 repo/src/commands/session/
-repo/src/history.py
-repo/src/mini_agent/utils/sessionStorage.py
-repo/src/hooks/useAssistantHistory.py
+repo/src/history.ts
+repo/src/utils/sessionStorage.ts
+repo/src/hooks/useAssistantHistory.ts
 ```
 
 这些文件回答的问题：
@@ -182,7 +182,7 @@ repo/src/hooks/useAssistantHistory.py
 
 阅读方法：
 
-先读 `sessionHistory.py` 和 `history.py`，理解历史消息如何被管理。然后读 `utils/sessionStorage.py`，这是 transcript 相关逻辑的重点。你要关注：
+先读 `sessionHistory.py` 和 `history.py`，理解历史消息如何被管理。然后读 `utils/sessionStorage.ts`，这是 transcript 相关逻辑的重点。你要关注：
 
 1. transcript path。
 2. session id。
@@ -204,11 +204,11 @@ repo/src/hooks/useAssistantHistory.py
 优先阅读：
 
 ```text
-repo/src/cli/handlers/agents.py
+repo/src/cli/handlers/agents.ts
 repo/src/commands/agents/
 repo/src/components/agents/
-repo/src/mini_agent/tools/AgentTool/
-repo/src/mini_agent/utils/agentToolUtils.py
+repo/src/tools/AgentTool/
+repo/src/tools/AgentTool/agentToolUtils.ts
 ```
 
 如果某些路径在版本中不同，可以用：
@@ -252,8 +252,8 @@ rg "sidechain" repo/src
 优先阅读：
 
 ```text
-repo/src/entrypoints/mcp.py
-repo/src/cli/handlers/mcp.python
+repo/src/entrypoints/mcp.ts
+repo/src/cli/handlers/mcp.tsx
 repo/src/commands/mcp/
 repo/src/components/mcp/
 ```
@@ -285,7 +285,7 @@ repo/src/components/mcp/
 ```text
 repo/src/commands/hooks/
 repo/src/components/hooks/
-repo/src/hooks/useDeferredHookMessages.py
+repo/src/hooks/useDeferredHookMessages.ts
 ```
 
 这些文件回答的问题：
@@ -312,7 +312,7 @@ repo/src/hooks/useDeferredHookMessages.py
 ```text
 repo/src/commands/memory/
 repo/src/components/memory/
-repo/src/hooks/useMemoryUsage.py
+repo/src/hooks/useMemoryUsage.ts
 ```
 
 这些文件回答的问题：
@@ -344,11 +344,11 @@ rg "marketplace" repo/src
 重点路径通常包括：
 
 ```text
-repo/src/hooks/useSkillsChange.py
-repo/src/hooks/useManagePlugins.py
-repo/src/hooks/notifs/usePluginInstallationStatus.python
-repo/src/hooks/notifs/usePluginAutoupdateNotification.python
-repo/src/commands/install.python
+repo/src/hooks/useSkillsChange.ts
+repo/src/hooks/useManagePlugins.ts
+repo/src/hooks/notifs/usePluginInstallationStatus.tsx
+repo/src/hooks/notifs/usePluginAutoupdateNotification.tsx
+repo/src/commands/install.tsx
 repo/src/components/agents/
 ```
 
@@ -370,14 +370,14 @@ repo/src/components/agents/
 优先阅读：
 
 ```text
-repo/src/components/App.python
-repo/src/components/AgentProgressLine.python
-repo/src/components/CompactSummary.python
-repo/src/components/ContextVisualization.python
-repo/src/components/FileEditToolDiff.python
-repo/src/components/FallbackToolUseErrorMessage.python
-repo/src/components/FallbackToolUseRejectedMessage.python
-repo/src/components/DiagnosticsDisplay.python
+repo/src/components/App.tsx
+repo/src/components/AgentProgressLine.tsx
+repo/src/components/CompactSummary.tsx
+repo/src/components/ContextVisualization.tsx
+repo/src/components/FileEditToolDiff.tsx
+repo/src/components/FallbackToolUseErrorMessage.tsx
+repo/src/components/FallbackToolUseRejectedMessage.tsx
+repo/src/components/DiagnosticsDisplay.tsx
 ```
 
 这些文件回答的问题：
@@ -403,7 +403,7 @@ UI 不是 Agent 核心，但它决定用户能否理解 Agent 正在做什么。
 优先阅读：
 
 ```text
-repo/src/commands.py
+repo/src/commands.ts
 repo/src/commands/
 repo/src/cli/
 ```
@@ -411,13 +411,13 @@ repo/src/cli/
 命令目录里能看到很多功能入口：
 
 ```text
-repo/src/commands/review.py
-repo/src/commands/security-review.py
-repo/src/commands/commit.py
-repo/src/commands/commit-push-pr.py
-repo/src/commands/init.py
-repo/src/commands/statusline.python
-repo/src/commands/version.py
+repo/src/commands/review.ts
+repo/src/commands/security-review.ts
+repo/src/commands/commit.ts
+repo/src/commands/commit-push-pr.ts
+repo/src/commands/init.ts
+repo/src/commands/statusline.tsx
+repo/src/commands/version.ts
 ```
 
 这些文件回答的问题：
@@ -439,10 +439,10 @@ repo/src/commands/version.py
 
 ```text
 repo/src/bridge/
-repo/src/hooks/useRemoteSession.py
-repo/src/hooks/useMailboxBridge.py
-repo/src/components/BridgeDialog.python
-repo/src/components/DesktopHandoff.python
+repo/src/hooks/useRemoteSession.ts
+repo/src/hooks/useMailboxBridge.ts
+repo/src/components/BridgeDialog.tsx
+repo/src/components/DesktopHandoff.tsx
 ```
 
 这些文件回答的问题：
@@ -466,11 +466,11 @@ repo/src/components/DesktopHandoff.python
 优先阅读：
 
 ```text
-repo/src/cost-tracker.py
-repo/src/costHook.py
-repo/src/components/CostThresholdDialog.python
-repo/src/hooks/useMemoryUsage.py
-repo/src/mini_agent/utils/queryProfiler.py
+repo/src/cost-tracker.ts
+repo/src/costHook.ts
+repo/src/components/CostThresholdDialog.tsx
+repo/src/hooks/useMemoryUsage.ts
+repo/src/utils/queryProfiler.ts
 ```
 
 这些文件回答的问题：
@@ -490,30 +490,30 @@ repo/src/mini_agent/utils/queryProfiler.py
 
 如果你只有一天时间，按这个顺序：
 
-1. `repo/src/tool.py`
-2. `repo/src/query.py`
-3. `repo/src/tools.py`
-4. `repo/src/context.py`
-5. `repo/src/hooks/toolPermission/permissionLogging.py`
-6. `repo/src/mini_agent/utils/sessionStorage.py`
-7. `repo/src/mini_agent/utils/queryProfiler.py`
+1. `repo/src/Tool.ts`
+2. `repo/src/query.ts`
+3. `repo/src/tools.ts`
+4. `repo/src/context.ts`
+5. `repo/src/hooks/toolPermission/permissionLogging.ts`
+6. `repo/src/utils/sessionStorage.ts`
+7. `repo/src/utils/queryProfiler.ts`
 
 如果你有三天时间：
 
 第一天：主循环和工具。
 
-1. `main.python`
-2. `query.py`
-3. `QueryEngine.py`
-4. `tool.py`
+1. `main.tsx`
+2. `query.ts`
+3. `QueryEngine.ts`
+4. `Tool.ts`
 5. `tools.py`
-6. `repo/src/mini_agent/tools/`
+6. `repo/src/tools/`
 
 第二天：权限、会话、上下文。
 
 1. `components/permissions/`
 2. `hooks/toolPermission/`
-3. `utils/sessionStorage.py`
+3. `utils/sessionStorage.ts`
 4. `context.py`
 5. `components/CompactSummary.python`
 6. `components/ContextVisualization.python`
@@ -522,10 +522,10 @@ repo/src/mini_agent/utils/queryProfiler.py
 
 1. `commands/agents/`
 2. `components/agents/`
-3. `agentToolUtils.py`
+3. `agentToolUtils.ts`
 4. `commands/mcp/`
 5. `components/mcp/`
-6. `utils/queryProfiler.py`
+6. `utils/queryProfiler.ts`
 
 如果你有两周时间：
 
@@ -569,9 +569,9 @@ repo/src/mini_agent/utils/queryProfiler.py
 
 | 文件 | 责任 | 关键函数/类型 | 关联章节 | 我的理解 |
 | --- | --- | --- | --- | --- |
-| `tool.py` | 工具抽象 | Tool | 第 18 章 | 工具是模型和程序的合同 |
-| `query.py` | 主请求流程 | query | 第 2 章 | Agent loop 的核心链路 |
-| `sessionStorage.py` | 会话持久化 | transcript | 第 15 章 | JSONL 保存事实链 |
+| `Tool.ts` | 工具抽象 | Tool | 第 18 章 | 工具是模型和程序的合同 |
+| `query.ts` | 主请求流程 | query | 第 2 章 | Agent loop 的核心链路 |
+| `sessionStorage.ts` | 会话持久化 | transcript | 第 15 章 | JSONL 保存事实链 |
 
 每读完一个模块，写三句话：
 
@@ -587,8 +587,8 @@ repo/src/mini_agent/utils/queryProfiler.py
 
 应该做“降维实现”：
 
-1. 从 `tool.py` 学接口，但只实现 4 个工具。
-2. 从 `query.py` 学循环，但先不做所有边缘分支。
+1. 从 `Tool.ts` 学接口，但只实现 4 个工具。
+2. 从 `query.ts` 学循环，但先不做所有边缘分支。
 3. 从权限系统学 allow/deny/ask，但先用简单规则。
 4. 从 sessionStorage 学 JSONL，但先不做所有兼容逻辑。
 5. 从 AgentTool 学 sidechain，但先只做一个子 Agent。

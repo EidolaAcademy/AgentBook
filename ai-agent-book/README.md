@@ -47,10 +47,13 @@
 - [第 40 章：部署、文档站、GitHub Pages 与发布流程](chapters/chapter-40.md)
 - [附录 A：AI Agent 工程术语表](chapters/appendix-a-glossary.md)
 - [附录 B：Claude Code 源码阅读索引与学习路线](chapters/appendix-b-source-map.md)
+- [附录 C：mini-agent 完整 Python 代码清单](chapters/appendix-c-mini-agent-complete-code.md)
 
 ## 说明
 
 - 正式书稿按章节拆分在 `chapters/` 目录。
+- 教学实现代码统一使用 Python；原仓库源码索引仍保留真实的 TypeScript 文件路径，便于对照阅读。
 - `01-manuscript.md` 是历史合并稿，后续以章节文件为主。
 - `00-writing-plan.md` 是全书规划。
 - `progress.md` 记录写作进度。
+- `code-audit.md` 记录 Python 代码块重复检测和修复状态。

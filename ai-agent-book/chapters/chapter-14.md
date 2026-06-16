@@ -80,8 +80,24 @@ read_file package-lock.json
 精确 token 计算需要 tokenizer。教学项目先用粗略估算：
 
 ```python
-def estimateTokens(text: str):
-    return Math.ceil(text) / 4)
+from dataclasses import dataclass
+
+@dataclass
+class Message:
+    role: str
+    content: str
+
+def estimate_tokens(text: str) -> int:
+    return max(1, len(text) // 4)
+
+def compact_messages(messages: list[Message], max_tokens: int, keep_recent: int = 6) -> list[Message]:
+    total = sum(estimate_tokens(message.content) for message in messages)
+    if total <= max_tokens:
+        return messages
+    old = messages[:-keep_recent]
+    recent = messages[-keep_recent:]
+    summary = "\n".join(f"- {message.role}: {message.content[:120]}" for message in old)
+    return [Message(role="system", content=f"历史摘要:\n{summary}"), *recent]
 ```
 
 这是非常粗略的英文估算。中文、代码、JSON 都会有偏差。但作为预算保护，比完全没有好。
@@ -364,13 +380,24 @@ class TranscriptEntry:
 应该在调用模型前运行：
 
 ```python
-messagesForModel = await compactMessagesIfNeeded(:
-    "messages": self.messages
-    "maxEstimatedTokens": 80_000
-    "keepRecent": 20
-    summarizer
+from dataclasses import dataclass
 
-response = await model.complete(messagesForModel)
+@dataclass
+class Message:
+    role: str
+    content: str
+
+def estimate_tokens(text: str) -> int:
+    return max(1, len(text) // 4)
+
+def compact_messages(messages: list[Message], max_tokens: int, keep_recent: int = 6) -> list[Message]:
+    total = sum(estimate_tokens(message.content) for message in messages)
+    if total <= max_tokens:
+        return messages
+    old = messages[:-keep_recent]
+    recent = messages[-keep_recent:]
+    summary = "\n".join(f"- {message.role}: {message.content[:120]}" for message in old)
+    return [Message(role="system", content=f"历史摘要:\n{summary}"), *recent]
 ```
 
 注意：内部完整 transcript 可以保留，发给模型的是 compact 后的 view。
@@ -404,12 +431,12 @@ tool_use/tool_result、thinking blocks、compact boundary 都要小心。
 Claude Code 中上下文工程相关模块包括：
 
 ```text
-src/query.py
-src/services/compact/autoCompact.py
-src/services/compact/microCompact.py
-src/services/compact/compact.py
+src/query.ts
+src/services/compact/autoCompact.ts
+src/services/compact/microCompact.ts
+src/services/compact/compact.ts
 src/mini_agent/utils/toolResultStorage.py
-src/services/tokenEstimation.py
+src/services/tokenEstimation.ts
 src/memdir/
 src/services/SessionMemory/
 ```

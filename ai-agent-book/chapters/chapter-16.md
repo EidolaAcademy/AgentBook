@@ -407,14 +407,19 @@ def read_text_file(workspace: Path, user_path: str) -> str:
 测试 Engine 会停：
 
 ```python
-engine = AgentEngine(:
-    "model": InfiniteToolModel()
-    "tools": registry
-    cwd
-    "maxTurns": 3
+from dataclasses import dataclass
+from typing import Any
 
-final = await engine.submit("loop")
-expect(renderMessage(final)).toContain("maxTurns")
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 这能防止无限循环回归。
@@ -424,14 +429,19 @@ expect(renderMessage(final)).toContain("maxTurns")
 构造一组消息：
 
 ```python
-messages = [
-userText("start")
+from pathlib import Path
 
-    "role": "assistant"
-    "content": [
-    { type: "tool_use", id: "1", name: "read_file", input: { path: "a" } }
-toolResult("1", "content")
-]
+def resolve_inside_workspace(workspace: Path, user_path: str) -> Path:
+    root = workspace.resolve()
+    target = (root / user_path).resolve()
+    if target != root and root not in target.parents:
+        raise ValueError(f"路径越界: {user_path}")
+    return target
+
+def read_text_file(workspace: Path, user_path: str, limit: int = 200) -> str:
+    file_path = resolve_inside_workspace(workspace, user_path)
+    lines = file_path.read_text(encoding="utf-8").splitlines()
+    return "\n".join(lines[:limit])
 ```
 
 测试裁剪后不留下 unresolved tool_use。

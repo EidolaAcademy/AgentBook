@@ -124,10 +124,19 @@ Expected ...
 实现：
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 这比只保留开头更有用。
@@ -268,8 +277,8 @@ Claude Code 相关模块：
 
 ```text
 src/mini_agent/utils/toolResultStorage.py
-src/query.py
-src/services/tools/toolExecution.py
+src/query.ts
+src/services/tools/toolExecution.ts
 ```
 
 关键思想：

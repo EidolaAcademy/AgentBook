@@ -585,9 +585,24 @@ AgentTool 创建 workerPermissionContext 时，会基于父 context 复制，但
 教学版：
 
 ```python
-childPermissionContext =:
-    ...parentPermissionContext
-    "mode": agentDefinition.permissionMode  or  "default"
+from dataclasses import dataclass
+from typing import Any, Literal
+
+Decision = Literal["allow", "deny", "ask"]
+
+@dataclass
+class PermissionDecision:
+    decision: Decision
+    reason: str = ""
+    rule: str | None = None
+
+def check_tool_permission(tool_name: str, tool_input: dict[str, Any]) -> PermissionDecision:
+    command = str(tool_input.get("command", ""))
+    if tool_name == "Bash" and command.startswith("rm -rf"):
+        return PermissionDecision("deny", "危险删除命令", "Bash(rm -rf*)")
+    if tool_name in {"Read", "Grep"}:
+        return PermissionDecision("allow")
+    return PermissionDecision("ask", f"需要用户确认: {tool_name}")
 ```
 
 注意：不要让子 Agent 默认继承父 Agent 的所有宽权限。
@@ -649,10 +664,30 @@ Explore agent 就 disallow AgentTool，这是很好的例子。
 教学版可以加：
 
 ```python
+from dataclasses import dataclass, field
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ChildAgentRequest:
+    agent_id: str
+    task: str
+    allowed_tools: list[str] = field(default_factory=list)
+    max_turns: int = 8
+
+@dataclass
+class ChildAgentResult:
+    agent_id: str
+    summary: str
+    messages: list[dict[str, Any]] = field(default_factory=list)
+
+async def run_child_agent(request: ChildAgentRequest, model: Any, tools: dict[str, Any]) -> ChildAgentResult:
+    messages = [{"role": "user", "content": request.task}]
+    for _ in range(request.max_turns):
+        response = await model.complete(messages, tools)
+        messages.append(response)
+        if not response.get("tool_uses"):
+            return ChildAgentResult(request.agent_id, str(response.get("content", "")), messages)
+    return ChildAgentResult(request.agent_id, "子 Agent 达到最大轮数", messages)
 ```
 
 ## 30.16 子 Agent 的成本控制
@@ -682,17 +717,59 @@ Claude Code 的 AgentDefinition 有 `maxTurns`。其他地方也有预算、toke
 教学版可以先实现：
 
 ```python
+from dataclasses import dataclass, field
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ChildAgentRequest:
+    agent_id: str
+    task: str
+    allowed_tools: list[str] = field(default_factory=list)
+    max_turns: int = 8
+
+@dataclass
+class ChildAgentResult:
+    agent_id: str
+    summary: str
+    messages: list[dict[str, Any]] = field(default_factory=list)
+
+async def run_child_agent(request: ChildAgentRequest, model: Any, tools: dict[str, Any]) -> ChildAgentResult:
+    messages = [{"role": "user", "content": request.task}]
+    for _ in range(request.max_turns):
+        response = await model.complete(messages, tools)
+        messages.append(response)
+        if not response.get("tool_uses"):
+            return ChildAgentResult(request.agent_id, str(response.get("content", "")), messages)
+    return ChildAgentResult(request.agent_id, "子 Agent 达到最大轮数", messages)
 ```
 
 每轮检查：
 
 ```python
-if (turns >= budget.maxTurns) stop("max turns reached")
-if (time.time() - start > budget.maxRuntimeMs) stop("timeout")
+from dataclasses import dataclass, field
+from typing import Any
+
+@dataclass
+class ChildAgentRequest:
+    agent_id: str
+    task: str
+    allowed_tools: list[str] = field(default_factory=list)
+    max_turns: int = 8
+
+@dataclass
+class ChildAgentResult:
+    agent_id: str
+    summary: str
+    messages: list[dict[str, Any]] = field(default_factory=list)
+
+async def run_child_agent(request: ChildAgentRequest, model: Any, tools: dict[str, Any]) -> ChildAgentResult:
+    messages = [{"role": "user", "content": request.task}]
+    for _ in range(request.max_turns):
+        response = await model.complete(messages, tools)
+        messages.append(response)
+        if not response.get("tool_uses"):
+            return ChildAgentResult(request.agent_id, str(response.get("content", "")), messages)
+    return ChildAgentResult(request.agent_id, "子 Agent 达到最大轮数", messages)
 ```
 
 没有预算的子 Agent 是危险的。
@@ -768,18 +845,24 @@ def deny_message(rule: PermissionRule) -> dict[str, str]:
 定义 Explore：
 
 ```python
-"exploreAgent": AgentDefinition =:
-    "agentType": "Explore"
-    "whenToUse": "Search and read code without modifying files"
-    "model": "haiku"
-    "permissionMode": "default"
-    "disallowedTools": ["Edit", "Write", "Agent"]
-    "maxTurns": 6
-    "systemPrompt": "
-    You are a read-only code exploration agent.
-    Search and read files. Do not modify files.
-    Return concise findings with file paths.
-    ".strip()
+from dataclasses import dataclass
+from typing import Any, Literal
+
+Decision = Literal["allow", "deny", "ask"]
+
+@dataclass
+class PermissionDecision:
+    decision: Decision
+    reason: str = ""
+    rule: str | None = None
+
+def check_tool_permission(tool_name: str, tool_input: dict[str, Any]) -> PermissionDecision:
+    command = str(tool_input.get("command", ""))
+    if tool_name == "Bash" and command.startswith("rm -rf"):
+        return PermissionDecision("deny", "危险删除命令", "Bash(rm -rf*)")
+    if tool_name in {"Read", "Grep"}:
+        return PermissionDecision("allow")
+    return PermissionDecision("ask", f"需要用户确认: {tool_name}")
 ```
 
 这个定义已经足够训练我们后续实现 AgentTool。
@@ -789,10 +872,30 @@ def deny_message(rule: PermissionRule) -> dict[str, str]:
 AgentTool 输入：
 
 ```python
+from dataclasses import dataclass, field
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ChildAgentRequest:
+    agent_id: str
+    task: str
+    allowed_tools: list[str] = field(default_factory=list)
+    max_turns: int = 8
+
+@dataclass
+class ChildAgentResult:
+    agent_id: str
+    summary: str
+    messages: list[dict[str, Any]] = field(default_factory=list)
+
+async def run_child_agent(request: ChildAgentRequest, model: Any, tools: dict[str, Any]) -> ChildAgentResult:
+    messages = [{"role": "user", "content": request.task}]
+    for _ in range(request.max_turns):
+        response = await model.complete(messages, tools)
+        messages.append(response)
+        if not response.get("tool_uses"):
+            return ChildAgentResult(request.agent_id, str(response.get("content", "")), messages)
+    return ChildAgentResult(request.agent_id, "子 Agent 达到最大轮数", messages)
 ```
 
 含义：

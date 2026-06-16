@@ -205,10 +205,19 @@ src/
 模型接口不要和具体供应商强绑定：
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 `agent.py`：
@@ -526,14 +535,24 @@ def deny_message(rule: PermissionRule) -> dict[str, str]:
 规则示例：
 
 ```python
-rules = [
-{ tool: "Read", decision: "allow" }
-{ tool: "Grep", decision: "allow" }
-{ tool: "Bash", commandPrefix: "pytest", decision: "allow" }
-{ tool: "Bash", commandPrefix: "git push", decision: "ask" }
-{ tool: "Bash", commandPrefix: "rm -rf", decision: "deny" }
-{ tool: "Edit", decision: "ask" }
-]
+from dataclasses import dataclass
+from typing import Any, Literal
+
+Decision = Literal["allow", "deny", "ask"]
+
+@dataclass
+class PermissionDecision:
+    decision: Decision
+    reason: str = ""
+    rule: str | None = None
+
+def check_tool_permission(tool_name: str, tool_input: dict[str, Any]) -> PermissionDecision:
+    command = str(tool_input.get("command", ""))
+    if tool_name == "Bash" and command.startswith("rm -rf"):
+        return PermissionDecision("deny", "危险删除命令", "Bash(rm -rf*)")
+    if tool_name in {"Read", "Grep"}:
+        return PermissionDecision("allow")
+    return PermissionDecision("ask", f"需要用户确认: {tool_name}")
 ```
 
 验收标准：
@@ -648,11 +667,31 @@ Write 更危险。建议：
 最小策略：
 
 ```python
-limits =:
-    "readMaxLines": 300
-    "grepMaxResults": 100
-    "bashMaxOutputChars": 12000
-    "maxTurns": 20
+import asyncio
+from dataclasses import dataclass
+from pathlib import Path
+
+@dataclass
+class CommandResult:
+    command: str
+    exit_code: int | None
+    stdout: str
+    stderr: str
+    timed_out: bool = False
+
+async def run_command(command: str, cwd: Path, timeout: float = 30.0) -> CommandResult:
+    process = await asyncio.create_subprocess_shell(
+        command,
+        cwd=str(cwd),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        process.kill()
+        return CommandResult(command, None, "", "命令超时", True)
+    return CommandResult(command, process.returncode, stdout.decode(), stderr.decode())
 ```
 
 截断工具结果时要告诉模型：
@@ -903,10 +942,30 @@ Eval case：
 最小 AgentTool：
 
 ```python
+from dataclasses import dataclass, field
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ChildAgentRequest:
+    agent_id: str
+    task: str
+    allowed_tools: list[str] = field(default_factory=list)
+    max_turns: int = 8
+
+@dataclass
+class ChildAgentResult:
+    agent_id: str
+    summary: str
+    messages: list[dict[str, Any]] = field(default_factory=list)
+
+async def run_child_agent(request: ChildAgentRequest, model: Any, tools: dict[str, Any]) -> ChildAgentResult:
+    messages = [{"role": "user", "content": request.task}]
+    for _ in range(request.max_turns):
+        response = await model.complete(messages, tools)
+        messages.append(response)
+        if not response.get("tool_uses"):
+            return ChildAgentResult(request.agent_id, str(response.get("content", "")), messages)
+    return ChildAgentResult(request.agent_id, "子 Agent 达到最大轮数", messages)
 ```
 
 子 Agent 运行时：

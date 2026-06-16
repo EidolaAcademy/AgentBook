@@ -180,9 +180,31 @@ tool_result
 先设计输入：
 
 ```python
-inputSchema =:
-    "command": str
-    "timeoutMs": int.positive() | None
+import asyncio
+from dataclasses import dataclass
+from pathlib import Path
+
+@dataclass
+class CommandResult:
+    command: str
+    exit_code: int | None
+    stdout: str
+    stderr: str
+    timed_out: bool = False
+
+async def run_command(command: str, cwd: Path, timeout: float = 30.0) -> CommandResult:
+    process = await asyncio.create_subprocess_shell(
+        command,
+        cwd=str(cwd),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        process.kill()
+        return CommandResult(command, None, "", "命令超时", True)
+    return CommandResult(command, process.returncode, stdout.decode(), stderr.decode())
 ```
 
 字段含义：
@@ -202,8 +224,31 @@ inputSchema =:
 后面可以加入：
 
 ```python
-"description": str | None
-"runInBackground": bool | None
+import asyncio
+from dataclasses import dataclass
+from pathlib import Path
+
+@dataclass
+class CommandResult:
+    command: str
+    exit_code: int | None
+    stdout: str
+    stderr: str
+    timed_out: bool = False
+
+async def run_command(command: str, cwd: Path, timeout: float = 30.0) -> CommandResult:
+    process = await asyncio.create_subprocess_shell(
+        command,
+        cwd=str(cwd),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        process.kill()
+        return CommandResult(command, None, "", "命令超时", True)
+    return CommandResult(command, process.returncode, stdout.decode(), stderr.decode())
 ```
 
 Claude Code 的 BashTool 输入就更丰富，支持描述、超时、后台运行等。我们先保持最小。
@@ -266,17 +311,31 @@ Claude Code 的 BashTool 也会解释命令结果，并把 stdout/stderr、exit 
 我们先定义一组明显只读命令：
 
 ```python
-READ_ONLY_COMMANDS =:
-    "ls"
-    "pwd"
-    "cat"
-    "head"
-    "tail"
-    "grep"
-    "rg"
-    "find"
-    "wc"
-    "git"
+import asyncio
+from dataclasses import dataclass
+from pathlib import Path
+
+@dataclass
+class CommandResult:
+    command: str
+    exit_code: int | None
+    stdout: str
+    stderr: str
+    timed_out: bool = False
+
+async def run_command(command: str, cwd: Path, timeout: float = 30.0) -> CommandResult:
+    process = await asyncio.create_subprocess_shell(
+        command,
+        cwd=str(cwd),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        process.kill()
+        return CommandResult(command, None, "", "命令超时", True)
+    return CommandResult(command, process.returncode, stdout.decode(), stderr.decode())
 ```
 
 但 `git` 很特殊：
@@ -372,10 +431,19 @@ pass
 `exec` 用起来很简单：
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 但它有一个特点：会把 stdout/stderr 缓存在内存里，等命令结束后一次性回调。对小命令没问题，对 Agent Shell 工具不够理想。
@@ -411,10 +479,19 @@ cat large.log
 创建 `src/mini_agent/utils/OutputAccumulator.py`：
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 这个类非常简单，但意义很大。工具输出必须有预算。无论是 shell、grep、web fetch，还是 MCP 工具，都可能返回巨大内容。如果你不限制，模型上下文、内存和成本都会失控。
@@ -471,7 +548,31 @@ async def run_command(command: str, cwd: str, timeout: float = 30.0) -> CommandR
 这里有一个重要选择：
 
 ```python
-"shell": True
+import asyncio
+from dataclasses import dataclass
+from pathlib import Path
+
+@dataclass
+class CommandResult:
+    command: str
+    exit_code: int | None
+    stdout: str
+    stderr: str
+    timed_out: bool = False
+
+async def run_command(command: str, cwd: Path, timeout: float = 30.0) -> CommandResult:
+    process = await asyncio.create_subprocess_shell(
+        command,
+        cwd=str(cwd),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        process.kill()
+        return CommandResult(command, None, "", "命令超时", True)
+    return CommandResult(command, process.returncode, stdout.decode(), stderr.decode())
 ```
 
 这让用户可以运行：
@@ -529,38 +630,31 @@ DEFAULT_TIMEOUT_MS = 30_000
 在同一个文件中加入：
 
 ```python
-READ_ONLY_COMMANDS =:
-    "ls"
-    "pwd"
-    "cat"
-    "head"
-    "tail"
-    "grep"
-    "rg"
-    "find"
-    "wc"
-    "stat"
-    "file"
+import asyncio
+from dataclasses import dataclass
+from pathlib import Path
 
-READ_ONLY_GIT_SUBCOMMANDS =:
-    "status"
-    "diff"
-    "log"
-    "show"
-    "branch"
+@dataclass
+class CommandResult:
+    command: str
+    exit_code: int | None
+    stdout: str
+    stderr: str
+    timed_out: bool = False
 
-def firstWords(command: str):
-    return command.strip().split(/\s+/)
-
-def isObviouslyReadOnly(command: str):
-    [base, subcommand] = firstWords(command)
-
-    if (not base) return False
-
-    if base === "git":
-        return READ_ONLY_GIT_SUBCOMMANDS.has(subcommand  or  "")
-
-    return READ_ONLY_COMMANDS.has(base)
+async def run_command(command: str, cwd: Path, timeout: float = 30.0) -> CommandResult:
+    process = await asyncio.create_subprocess_shell(
+        command,
+        cwd=str(cwd),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        process.kill()
+        return CommandResult(command, None, "", "命令超时", True)
+    return CommandResult(command, process.returncode, stdout.decode(), stderr.decode())
 ```
 
 再强调一次：这只是教学版。它不能识别重定向、管道、`&&`、`;` 等危险组合。
@@ -568,18 +662,61 @@ def isObviouslyReadOnly(command: str):
 为了让教学版更保守，我们可以加一个粗略拒绝：
 
 ```python
-def containsShellOperator(command: str):
-    return /[;&|<>"$]/.test(command)
+import asyncio
+from dataclasses import dataclass
+from pathlib import Path
+
+@dataclass
+class CommandResult:
+    command: str
+    exit_code: int | None
+    stdout: str
+    stderr: str
+    timed_out: bool = False
+
+async def run_command(command: str, cwd: Path, timeout: float = 30.0) -> CommandResult:
+    process = await asyncio.create_subprocess_shell(
+        command,
+        cwd=str(cwd),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        process.kill()
+        return CommandResult(command, None, "", "命令超时", True)
+    return CommandResult(command, process.returncode, stdout.decode(), stderr.decode())
 ```
 
 然后：
 
 ```python
-def isObviouslyReadOnly(command: str):
-    if (containsShellOperator(command)) return False
+import asyncio
+from dataclasses import dataclass
+from pathlib import Path
 
-    [base, subcommand] = firstWords(command)
-    // ...
+@dataclass
+class CommandResult:
+    command: str
+    exit_code: int | None
+    stdout: str
+    stderr: str
+    timed_out: bool = False
+
+async def run_command(command: str, cwd: Path, timeout: float = 30.0) -> CommandResult:
+    process = await asyncio.create_subprocess_shell(
+        command,
+        cwd=str(cwd),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        process.kill()
+        return CommandResult(command, None, "", "命令超时", True)
+    return CommandResult(command, process.returncode, stdout.decode(), stderr.decode())
 ```
 
 这会拒绝很多本来安全的命令，例如：
@@ -774,10 +911,31 @@ pytest
 所以 `execCommand()` 不应该因为 exit code 非零就 reject。它应该正常 resolve：
 
 ```python
-resolve(:
-    "exitCode": code
-    stdout
-    stderr
+import asyncio
+from dataclasses import dataclass
+from pathlib import Path
+
+@dataclass
+class CommandResult:
+    command: str
+    exit_code: int | None
+    stdout: str
+    stderr: str
+    timed_out: bool = False
+
+async def run_command(command: str, cwd: Path, timeout: float = 30.0) -> CommandResult:
+    process = await asyncio.create_subprocess_shell(
+        command,
+        cwd=str(cwd),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        process.kill()
+        return CommandResult(command, None, "", "命令超时", True)
+    return CommandResult(command, process.returncode, stdout.decode(), stderr.decode())
 ```
 
 只有这些情况才 reject：
@@ -801,10 +959,31 @@ Output truncated: true
 还可以更明确一点：
 
 ```python
-def if(self, output.truncated):
-    parts.append(
-    "Note: output was truncated. Run a more specific command if you need more detail."
+import asyncio
+from dataclasses import dataclass
+from pathlib import Path
+
+@dataclass
+class CommandResult:
+    command: str
+    exit_code: int | None
+    stdout: str
+    stderr: str
+    timed_out: bool = False
+
+async def run_command(command: str, cwd: Path, timeout: float = 30.0) -> CommandResult:
+    process = await asyncio.create_subprocess_shell(
+        command,
+        cwd=str(cwd),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
     )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        process.kill()
+        return CommandResult(command, None, "", "命令超时", True)
+    return CommandResult(command, process.returncode, stdout.decode(), stderr.decode())
 ```
 
 这类提示会影响模型行为。

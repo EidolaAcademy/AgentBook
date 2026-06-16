@@ -125,10 +125,19 @@ description: Review API changes
 教学版：
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 ## 37.4 frontmatter 字段
@@ -279,10 +288,19 @@ model: inherit
 教学版：
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 ## 37.8 maxTurns 校验
@@ -303,11 +321,19 @@ maxTurns: -1
 不要让坏值默默变成无限循环。解析时应该警告或拒绝。
 
 ```python
-def parsePositiveInt(value: Any):
-    if (value == None) return None
-    n = Number(value)
-    if (not Number.isInteger(n)  or  n <= 0) return None
-    return n
+from dataclasses import dataclass
+from typing import Any
+
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 ## 37.9 memory、skills、isolation 的组合
@@ -382,19 +408,19 @@ policy settings
 教学版：
 
 ```python
-async def loadAllAgents(cwd: str):
-    builtIn = getBuiltInAgents()
-    plugin = await loadPluginAgents()
-    user = await loadUserAgents()
-    project = await loadProjectAgents(cwd)
-    policy = await loadPolicyAgents()
+from dataclasses import dataclass
+from typing import Any
 
-    return mergeAgents([
-    builtIn
-    plugin
-    user
-    project
-    policy
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 ## 37.12 覆盖优先级
@@ -404,10 +430,19 @@ async def loadAllAgents(cwd: str):
 源码中会按 group 顺序写入 Map，后写覆盖前写。这样可以实现优先级。
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 越靠后的来源优先级越高。
@@ -472,10 +507,19 @@ security-tools:web:reviewer
 源码中插件 Agent 会把 pluginName、namespace、baseAgentName 拼起来：
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 这让插件可以安全分发 Agent。
@@ -491,9 +535,19 @@ def example(context: dict[str, Any]) -> dict[str, Any]:
 加载时替换：
 
 ```python
-systemPrompt = substitutePluginVariables(markdownContent,:
-    "path": pluginPath
-    "source": sourceName
+from pathlib import Path
+
+def resolve_inside_workspace(workspace: Path, user_path: str) -> Path:
+    root = workspace.resolve()
+    target = (root / user_path).resolve()
+    if target != root and root not in target.parents:
+        raise ValueError(f"路径越界: {user_path}")
+    return target
+
+def read_text_file(workspace: Path, user_path: str, limit: int = 200) -> str:
+    file_path = resolve_inside_workspace(workspace, user_path)
+    lines = file_path.read_text(encoding="utf-8").splitlines()
+    return "\n".join(lines[:limit])
 ```
 
 插件也可能有用户配置：
@@ -529,10 +583,24 @@ API endpoint: {user_config.endpoint}
 教学版也建议这样：
 
 ```python
-if source === 'plugin':
-    ignore(frontmatter.permissionMode)
-    ignore(frontmatter.hooks)
-    ignore(frontmatter.mcpServers)
+from dataclasses import dataclass
+from typing import Any, Literal
+
+Decision = Literal["allow", "deny", "ask"]
+
+@dataclass
+class PermissionDecision:
+    decision: Decision
+    reason: str = ""
+    rule: str | None = None
+
+def check_tool_permission(tool_name: str, tool_input: dict[str, Any]) -> PermissionDecision:
+    command = str(tool_input.get("command", ""))
+    if tool_name == "Bash" and command.startswith("rm -rf"):
+        return PermissionDecision("deny", "危险删除命令", "Bash(rm -rf*)")
+    if tool_name in {"Read", "Grep"}:
+        return PermissionDecision("allow")
+    return PermissionDecision("ask", f"需要用户确认: {tool_name}")
 ```
 
 ## 37.17 插件 Agent 能声明什么
@@ -567,10 +635,19 @@ if source === 'plugin':
 源码中会通过文件 identity 检测 duplicate path。教学版可以简单用 realpath：
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 这避免重复注册同一个 Agent。
@@ -580,18 +657,37 @@ def example(context: dict[str, Any]) -> dict[str, Any]:
 Agent definitions 通常会 memoize。否则每次 prompt 都扫描文件系统会很慢。
 
 ```python
+from dataclasses import dataclass
 from typing import Any
 
-def example(context: dict[str, Any]) -> dict[str, Any]:
-    return {"ok": True, "context": context}
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 当用户修改 Agent 文件或插件更新时，需要清缓存：
 
 ```python
-def clearAgentDefinitionsCache():
-    getAgentDefinitionsWithOverrides.cache.clear.()
-    clearPluginAgentCache()
+from dataclasses import dataclass
+from typing import Any
+
+@dataclass
+class ToolUse:
+    id: str
+    name: str
+    input: dict[str, Any]
+
+async def run_agent_step(model: Any, messages: list[dict[str, Any]], tools: dict[str, Any]) -> dict[str, Any]:
+    response = await model.complete(messages, tools)
+    messages.append(response)
+    return response
 ```
 
 缓存是性能优化，但必须有清理入口。
